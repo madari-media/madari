@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Madari</string>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">#080B14</item>
+        <item name="android:colorAccent">#5388FF</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

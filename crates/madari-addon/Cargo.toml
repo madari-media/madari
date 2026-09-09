@@ -1,0 +1,17 @@
+[package]
+name = "madari-addon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+openapi = ["dep:utoipa", "madari-model/openapi"]
+
+[dependencies]
+madari-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+percent-encoding.workspace = true
+utoipa = { workspace = true, optional = true }

@@ -1,0 +1,33 @@
+[package]
+name = "madari-linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+adw.workspace = true
+gtk.workspace = true
+madari-core.workspace = true
+madari-model.workspace = true
+madari-native.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+madari-addon.workspace = true
+serde_json.workspace = true
+url.workspace = true
+tempfile.workspace = true
+
+pango = { version = "0.22", features = ["v1_56"] }
+
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+sha2.workspace = true
+libmpv2 = { version = "6", features = ["render"] }
+libloading = "0.8"
+libc = "0.2"
+
+[dev-dependencies]
+madari-media.workspace = true
+async-trait.workspace = true
+axum.workspace = true

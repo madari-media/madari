@@ -1,0 +1,22 @@
+[package]
+name = "madari-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+madari-model.workspace = true
+madari-addon.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures.workspace = true
+librqbit.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

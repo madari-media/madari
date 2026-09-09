@@ -1,0 +1,31 @@
+# Rust
+/target/
+
+# Local data and secrets
+/data/
+.env
+*.sqlite*
+
+# Crash dumps
+core
+core.*
+
+# Android / Gradle
+.gradle/
+.kotlin/
+**/build/
+local.properties
+*.apk
+*.aab
+captures/
+apps/tv/app/src/main/jniLibs/
+apps/tv/app/libs/
+
+# Node
+node_modules/
+
+# Editors and OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

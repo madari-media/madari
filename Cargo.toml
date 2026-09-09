@@ -1,0 +1,49 @@
+[workspace]
+members = ["crates/*", "apps/server", "apps/linux"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[workspace.dependencies]
+madari-model = { path = "crates/madari-model" }
+madari-addon = { path = "crates/madari-addon" }
+madari-core = { path = "crates/madari-core" }
+madari-native = { path = "crates/madari-native" }
+madari-media = { path = "crates/madari-media" }
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+bytes = "1"
+futures = "0.3"
+http = "1"
+librqbit = { version = "=9.0.1", default-features = false, features = ["rust-tls"] }
+percent-encoding = "2"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "process", "io-util", "fs", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "limit"] }
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
+utoipa = { version = "5.5", features = ["axum_extras", "url"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
+argon2 = "0.5"
+
+[profile.dev]
+debug = 1
+
+[patch.crates-io]
+librqbit = { path = "vendor/librqbit" }

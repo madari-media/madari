@@ -1,0 +1,11 @@
+{
+  "id": "org.madari.test",
+  "name": "Madari deterministic test addon",
+  "version": "1.0.0",
+  "description": "Synthetic fixture, independent of any third-party addon or service.",
+  "types": ["movie"],
+  "idPrefixes": ["test:"],
+  "resources": ["catalog", "meta", "stream", "subtitles", "addon_catalog"],
+  "catalogs": [{"type": "movie", "id": "all", "name": "All", "extra": [{"name": "search"}]}],
+  "addonCatalogs": [{"type": "all", "id": "community", "name": "Community"}]
+}
