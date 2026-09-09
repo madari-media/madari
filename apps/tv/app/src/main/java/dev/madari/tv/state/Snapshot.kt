@@ -20,6 +20,14 @@ fun savedTitles(snapshot: JSONObject): List<Title> = snapshot.optJSONArray("libr
     )
 }
 
+/** One Continue watching card: cached full metadata plus the next video chosen by the core. */
+data class ContinueEntry(
+    val title: Title,
+    val meta: JSONObject,
+    val hasVideos: Boolean,
+    val episode: JSONObject?
+)
+
 fun continueTitles(snapshot: JSONObject): List<Title> {
     val hidden = snapshot.optJSONArray("hidden_continue").objects()
     return snapshot.optJSONArray("progress").objects().asReversed()

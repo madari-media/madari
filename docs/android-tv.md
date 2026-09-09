@@ -145,11 +145,12 @@ background/foreground transitions, and interrupted networks.
 ## Current limits
 
 This is the first TV client, not full Linux feature parity. Trakt login/sync,
-addon sharing/reconfiguration UI, PiP, transfer management, automatic next-episode
-source matching, subtitle-addon discovery and TV home-screen recommendations
-are not wired into the TV interface. Continue watching currently lists unfinished
-items; completed series can advance from title details using the shared policy.
-The player uses codecs available to Media3/device decoders; desktop FFmpeg
+addon sharing/reconfiguration UI, PiP, transfer management, subtitle-addon
+discovery and TV home-screen recommendations are not wired into the TV interface.
+Continue watching resolves metadata with the cached `continue_metadata` batch,
+hides series with no next episode, and resumes or advances through the shared
+`continue_episode` policy; automatic source reuse follows the saved `bingeGroup`
+and falls back to the source picker. The player uses codecs available to Media3/device decoders; desktop FFmpeg
 transcoding is not bundled. Inline subtitles are loaded only for sources without
 custom HTTP headers, matching the Linux client's credential isolation policy.
 

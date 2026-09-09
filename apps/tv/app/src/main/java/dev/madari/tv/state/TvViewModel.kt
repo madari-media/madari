@@ -172,16 +172,46 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         val episode = repository.objectCall("episode",obj("meta" to metadata,"key" to title.key,"today" to java.time.LocalDate.now().toString()))
         mutable.update { it.copy(detail = Title(title.provider,metadata), videoId = episode.optJSONObject("video")?.text("id")) }
     }
-    suspend fun continueVideo(title: Title): JSONObject? = repository.objectCall("episode",obj("meta" to title.raw,"key" to title.key,"today" to java.time.LocalDate.now().toString())).optJSONObject("video")
-    fun resumeContinue(title: Title) = run(replace = true) {
+    private suspend fun continueVideo(title: Title): JSONObject? = repository.objectCall("episode",obj("meta" to title.raw,"key" to title.key,"today" to java.time.LocalDate.now().toString())).optJSONObject("video")
+    /**
+     * Resolve continue-watching metadata in one cached batch (`continue_metadata`) and ask the
+     * core which video each series should resume. Movies need no episode lookup.
+     */
+    suspend fun continueEntries(titles: List<Title>): List<ContinueEntry> {
+        if (titles.isEmpty()) return emptyList()
+        val keys = JSONArray().apply { titles.forEach { put(it.key) } }
+        val resolved = try { JSONArray(repository.call("continue_metadata", keys)) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { JSONArray() }
+        val metas = HashMap<String, JSONObject>()
+        for (index in 0 until resolved.length()) {
+            val pair = resolved.optJSONArray(index) ?: continue
+            val key = pair.optJSONObject(0) ?: continue
+            val meta = pair.optJSONObject(1)?.optJSONObject("meta") ?: continue
+            metas["${key.text("installation_id")}|${key.text("content_type")}|${key.text("item_id")}"] = meta
+        }
+        return titles.map { title ->
+            val meta = metas[title.identity] ?: title.raw
+            val hasVideos = (meta.optJSONArray("videos")?.length() ?: 0) > 0
+            val episode = if (title.type == "series" && hasVideos) try {
+                repository.objectCall("episode", obj("meta" to meta, "key" to title.key, "today" to java.time.LocalDate.now().toString())).optJSONObject("video")
+            } catch (e: CancellationException) { throw e } catch (_: Exception) { null } else null
+            ContinueEntry(title, meta, hasVideos, episode)
+        }
+    }
+    fun resumeContinue(title: Title, knownVideoId: String? = null) = run(replace = true) {
         mutable.update { it.copy(resumingTitle=title.identity) }
         try {
         val metadata=repository.objectCall("metadata",obj("key" to title.key,"preview" to title.raw))
         val full=Title(title.provider,metadata)
         val history=state.value.snapshot.optJSONArray("progress").objects().filter { sameKey(it.optJSONObject("key"),title.key) }
-        val episode=continueVideo(full)
-        if(full.type=="series" && full.videos.isNotEmpty() && episode==null) error("No next episode is available yet.")
-        val video=episode?.text("id") ?: history.lastOrNull()?.text("video_id")?.takeIf { it.isNotBlank() }
+        val episode=knownVideoId ?: if(full.type=="series") continueVideo(full)?.text("id") else null
+        if(full.type=="series" && full.videos.isNotEmpty() && episode==null) {
+            // Nothing left to continue: show the title instead of failing the action.
+            mutable.update { it.copy(detail=full,videoId=null,sources=null,notices=emptyList()) }
+            return@run
+        }
+        val video=episode ?: history.lastOrNull()?.text("video_id")?.takeIf { it.isNotBlank() }
             ?: metadata.optJSONObject("behaviorHints")?.text("defaultVideoId")?.takeIf { it.isNotBlank() } ?: title.id
         val sources=playerSources(full,video)
         val saved=history.lastOrNull { it.text("video_id")==video } ?: history.lastOrNull()
