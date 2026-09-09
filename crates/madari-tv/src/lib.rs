@@ -210,7 +210,7 @@ fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
         .unwrap_or_else(|_| Err(invalid("Native operation failed")))
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_initialize(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_initialize(
     mut env: JNIEnv,
     _: JClass,
     path: JString,
@@ -233,7 +233,7 @@ pub extern "system" fn Java_dev_madari_tv_NativeCore_initialize(
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_dispatch(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_dispatch(
     mut env: JNIEnv,
     _: JClass,
     operation: JString,
@@ -269,7 +269,7 @@ pub extern "system" fn Java_dev_madari_tv_NativeCore_dispatch(
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_openMedia(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_openMedia(
     mut env: JNIEnv,
     _: JClass,
     uri: JString,
@@ -307,7 +307,7 @@ pub extern "system" fn Java_dev_madari_tv_NativeCore_openMedia(
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_mediaLength(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_mediaLength(
     mut env: JNIEnv,
     _: JClass,
     id: jlong,
@@ -333,7 +333,7 @@ pub extern "system" fn Java_dev_madari_tv_NativeCore_mediaLength(
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_readMedia(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_readMedia(
     mut env: JNIEnv,
     _: JClass,
     id: jlong,
@@ -383,7 +383,7 @@ pub extern "system" fn Java_dev_madari_tv_NativeCore_readMedia(
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_closeMedia(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_closeMedia(
     mut env: JNIEnv,
     _: JClass,
     id: jlong,
@@ -443,7 +443,7 @@ mod tests {
 // Its Java classes and application context must be installed before the first HTTPS call.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_NativeCore_initializeTls<'local>(
+pub extern "system" fn Java_dev_madari_tv_core_NativeCore_initializeTls<'local>(
     mut env: jni_platform::EnvUnowned<'local>,
     _: jni_platform::objects::JClass<'local>,
     context: jni_platform::objects::JObject<'local>,
