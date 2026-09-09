@@ -98,6 +98,24 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun createProfile(name: String, pin: String, kids: Boolean = false) = run {
         repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids)); loadProfiles()
     }
+    /**
+     * Create a profile from the picker. The native core requires an authorized regular
+     * profile when profiles already exist, so unlock the chosen adult, authorize it,
+     * create the profile and always close the temporary session afterwards.
+     */
+    fun addProfile(adult: JSONObject, adultPin: String, name: String, pin: String, kids: Boolean) = run {
+        try {
+            repository.objectCall("unlock", obj("id" to adult.text("id"), "pin" to adultPin))
+            repository.call("authorize", obj("pin" to adultPin))
+            repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids))
+        } finally {
+            // Never leave the picker holding another profile's session.
+            try { repository.call("leave", obj("pin" to adultPin)) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Already gone. */ }
+        }
+        loadProfiles()
+    }
     fun unlock(profile: JSONObject, pin: String) = run {
         cachedHome = emptyList()
         val selected = repository.objectCall("unlock", obj("id" to profile.text("id"), "pin" to pin))
