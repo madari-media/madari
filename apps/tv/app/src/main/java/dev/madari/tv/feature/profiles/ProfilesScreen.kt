@@ -1,4 +1,4 @@
-package dev.madari.tv
+package dev.madari.tv.feature.profiles
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -9,22 +9,30 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
+import dev.madari.tv.core.text
+import dev.madari.tv.state.TvState
+import dev.madari.tv.state.TvViewModel
+import dev.madari.tv.ui.components.Action
+import dev.madari.tv.ui.components.BrandLogo
+import dev.madari.tv.ui.components.Heading
+import dev.madari.tv.ui.components.Hint
+import dev.madari.tv.ui.components.Input
+import dev.madari.tv.ui.theme.TvColors
 import org.json.JSONObject
 
-@Composable fun ProfilesScreen(state: TvState, vm: TvViewModel) {
+@Composable
+fun ProfilesScreen(state: TvState, vm: TvViewModel) {
     var selected by remember { mutableStateOf<JSONObject?>(null) }
     var name by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }

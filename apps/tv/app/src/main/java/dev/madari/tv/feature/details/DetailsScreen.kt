@@ -1,18 +1,13 @@
-package dev.madari.tv
+package dev.madari.tv.feature.details
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,17 +18,30 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
 import coil.compose.AsyncImage
+import dev.madari.tv.core.objects
+import dev.madari.tv.core.strings
+import dev.madari.tv.core.text
+import dev.madari.tv.state.TvState
+import dev.madari.tv.state.TvViewModel
+import dev.madari.tv.state.sameKey
+import dev.madari.tv.ui.components.Action
+import dev.madari.tv.ui.components.Heading
+import dev.madari.tv.ui.components.Hint
+import dev.madari.tv.ui.components.TitleWordmark
+import dev.madari.tv.ui.theme.TvColors
 
+/** Title overview: a fixed viewport; only the episode and synopsis panels scroll. */
 @OptIn(ExperimentalFoundationApi::class)
-@Composable fun DetailsScreen(state: TvState, vm: TvViewModel) {
+@Composable
+fun DetailsScreen(state: TvState, vm: TvViewModel) {
     val title=state.detail ?: return
     val videos=title.videos
     val seasons=remember(title) { videos.map { it.optInt("season") }.distinct() }

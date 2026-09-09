@@ -36,6 +36,26 @@ Backup/device transfer is disabled for this private state. Android HTTPS uses
 rustls-platform-verifier's Java trust-store adapter, located through Cargo
 metadata and bundled with the APK.
 
+## Source layout
+
+`apps/tv/app/src/main/java/dev/madari/tv` is organized by layer and feature:
+
+```text
+MainActivity.kt        app shell, back handling, error dialog
+MadariApplication.kt   Coil image loader with the SVG decoder
+core/                  NativeCore JNI bridge, CoreRepository, JSON helpers, domain models
+state/                 TvState, TvViewModel and snapshot-derived screen models
+ui/theme/              TvColors, MadariTheme, the app-wide BringIntoViewSpec
+ui/components/         Glyph, Action/Input, poster rows, Hero, cinematic rows, loading
+ui/navigation/         expanding left navigation rail
+feature/<area>/        one screen per addon-driven area: profiles, home, library,
+                       search, explore, details, sources, settings, calendar, player
+```
+
+Dependencies point inward: `feature/*` and `ui/*` depend on `state` and `core`, while
+`core` depends on nothing above it. Screens never call JNI directly; every native
+operation goes through `CoreRepository` on `Dispatchers.IO`.
+
 ## Implemented flows
 
 - Create adult or kids profiles; enter a protected profile; guardian authorization

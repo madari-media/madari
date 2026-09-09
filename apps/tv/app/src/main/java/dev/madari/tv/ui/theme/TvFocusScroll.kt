@@ -1,4 +1,4 @@
-package dev.madari.tv
+package dev.madari.tv.ui.theme
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec

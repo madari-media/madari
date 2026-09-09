@@ -7,32 +7,41 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.focusGroup
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.*
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import dev.madari.tv.core.text
+import dev.madari.tv.feature.calendar.CalendarScreen
+import dev.madari.tv.feature.details.DetailsScreen
+import dev.madari.tv.feature.explore.ExploreScreen
+import dev.madari.tv.feature.home.HomeScreen
+import dev.madari.tv.feature.library.LibraryScreen
+import dev.madari.tv.feature.player.PlayerScreen
+import dev.madari.tv.feature.profiles.ProfilesScreen
+import dev.madari.tv.feature.search.SearchScreen
+import dev.madari.tv.feature.settings.SettingsScreen
+import dev.madari.tv.feature.sources.SourcesScreen
+import dev.madari.tv.state.TvViewModel
+import dev.madari.tv.ui.components.Action
+import dev.madari.tv.ui.components.Glyph
+import dev.madari.tv.ui.components.Heading
+import dev.madari.tv.ui.components.HomeLoadingScreen
+import dev.madari.tv.ui.components.LocalCardFocus
+import dev.madari.tv.ui.navigation.NavigationRail
+import dev.madari.tv.ui.theme.MadariTheme
+import dev.madari.tv.ui.theme.TvColors
 
 class MainActivity : ComponentActivity() {
     var playerKeyHandler: ((android.view.KeyEvent) -> Boolean)? = null
@@ -112,36 +121,6 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(Unit) { close.requestFocus() }
                 }
             }
-        }
-    }
-}
-/** Fixed content inset: opening the rail never remeasures the catalog underneath. */
-@Composable fun NavigationRail(selected: String, profile: String, onSelect: (String)->Unit, first: FocusRequester) {
-    var expanded by remember { mutableStateOf(false) }
-    val focus=LocalFocusManager.current
-    val entries=remember { listOf("Search" to "search","Home" to "home","Explore" to "explore","My list" to "plus","Calendar" to "calendar","Settings" to "settings") }
-    Box(Modifier.width(if(expanded) 248.dp else 72.dp).fillMaxHeight()
-        .background(Brush.horizontalGradient(listOf(TvColors.Background,TvColors.Background.copy(if(expanded) .98f else 1f),Color.Transparent)))) {
-        Column(Modifier.width(if(expanded) 206.dp else 72.dp).fillMaxHeight().padding(vertical=26.dp)
-            .onFocusChanged { expanded=it.hasFocus }.focusGroup(),horizontalAlignment=Alignment.Start) {
-            BrandLogo(Modifier.padding(start=20.dp))
-            Spacer(Modifier.weight(1f))
-            entries.forEach { (tab,icon) ->
-                var focused by remember { mutableStateOf(false) }
-                Button(onClick={onSelect(tab);focus.moveFocus(FocusDirection.Right)},
-                    modifier=Modifier.padding(start=14.dp,end=8.dp,bottom=9.dp).height(46.dp).fillMaxWidth()
-                        .then(if(tab=="Home") Modifier.focusRequester(first) else Modifier)
-                        .onFocusChanged { focused=it.isFocused }.semantics { contentDescription=tab },
-                    contentPadding=PaddingValues(horizontal=14.dp),
-                    shape=ButtonDefaults.shape(shape=RoundedCornerShape(8.dp)),
-                    scale=ButtonDefaults.scale(focusedScale=1f),
-                    colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=if(selected==tab) Color.White else TvColors.Muted,focusedContainerColor=Color.White.copy(.12f),focusedContentColor=Color.White)) {
-                    Glyph(icon,Modifier.size(22.dp),if(focused || selected==tab) Color.White else TvColors.Muted)
-                    if(expanded) { Spacer(Modifier.width(20.dp)); Text(tab,style=MaterialTheme.typography.titleMedium) }
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Text(if(expanded) profile else profile.take(1).uppercase(),Modifier.padding(start=28.dp),color=TvColors.Muted,style=MaterialTheme.typography.labelLarge,maxLines=1)
         }
     }
 }

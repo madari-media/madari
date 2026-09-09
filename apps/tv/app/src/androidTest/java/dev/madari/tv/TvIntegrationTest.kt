@@ -12,6 +12,14 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.madari.tv.core.NativeCore
+import dev.madari.tv.core.obj
+import dev.madari.tv.core.text
+import dev.madari.tv.ui.components.Action
+import dev.madari.tv.ui.components.Heading
+import dev.madari.tv.ui.navigation.NavigationRail
+import dev.madari.tv.ui.theme.MadariTheme
+import dev.madari.tv.ui.theme.TvFocusScroll
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule

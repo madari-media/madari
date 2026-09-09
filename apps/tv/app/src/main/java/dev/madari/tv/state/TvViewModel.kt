@@ -1,34 +1,34 @@
-package dev.madari.tv
+package dev.madari.tv.state
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.madari.tv.core.Catalog
+import dev.madari.tv.core.CoreRepository
+import dev.madari.tv.core.Playback
+import dev.madari.tv.core.Shelf
+import dev.madari.tv.core.Source
+import dev.madari.tv.core.Title
+import dev.madari.tv.core.obj
+import dev.madari.tv.core.objects
+import dev.madari.tv.core.text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 
 // The ViewModel orchestrates screens. Source validation, resume policy and authorization
 // stay in madari-core / madari-native; JSON preserves extension fields across JNI.
-data class TvState(
-    val loading: Boolean = true, val resumingTitle: String? = null, val error: String? = null,
-    val profiles: List<JSONObject> = emptyList(), val activeKids: String = "", val profile: JSONObject? = null,
-    val snapshot: JSONObject = JSONObject(), val tab: String = "Home", val shelves: List<Shelf> = emptyList(),
-    val detail: Title? = null, val videoId: String? = null, val sources: List<Source>? = null,
-    val playback: Playback? = null, val settingsUnlocked: Boolean = false,
-    val web: JSONObject = JSONObject(), val webAddress: String = "",
-    val calendar: JSONObject = JSONObject(), val query: String = "", val notices: List<String> = emptyList(), val catalog: Catalog? = null
-)
 class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = CoreRepository(application)
     private val mutable = MutableStateFlow(TvState())
@@ -298,14 +298,4 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             state.value.tab != "Home" -> selectTab("Home")
         }
     }
-}
-fun sameKey(a: JSONObject?, b: JSONObject) = a != null && listOf("installation_id","content_type","item_id").all { a.text(it) == b.text(it) }
-fun savedTitles(snapshot: JSONObject): List<Title> = snapshot.optJSONArray("library").objects().map { entry ->
-    val key = entry.getJSONObject("key")
-    Title(key.text("installation_id"),entry.optJSONObject("metadata") ?: obj("id" to key.text("item_id"),"type" to key.text("content_type"),"name" to entry.text("title")))
-}
-fun continueTitles(snapshot: JSONObject): List<Title> {
-    val hidden = snapshot.optJSONArray("hidden_continue").objects()
-    return snapshot.optJSONArray("progress").objects().asReversed().filter { p -> (!p.optBoolean("completed") || p.getJSONObject("key").text("content_type")=="series") && p.optLong("position_ms") > 0 && hidden.none { sameKey(it,p.getJSONObject("key")) } }
-        .map { entry -> val key = entry.getJSONObject("key"); Title(key.text("installation_id"),entry.optJSONObject("metadata") ?: obj("id" to key.text("item_id"),"type" to key.text("content_type"),"name" to key.text("item_id"))) }.distinctBy { it.identity }
 }
