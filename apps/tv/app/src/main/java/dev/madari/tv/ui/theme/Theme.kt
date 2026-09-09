@@ -28,16 +28,23 @@ fun MadariTheme(content: @Composable () -> Unit) {
             background = TvColors.Background, surface = TvColors.Panel,
             onSurface = Color.White, onBackground = Color.White
         ),
+        // Apply DM Sans to every style; leaving any out silently falls back to the system font.
         typography = Typography(
             displayLarge = base.displayLarge.copy(fontFamily = font),
             displayMedium = base.displayMedium.copy(fontFamily = font),
+            displaySmall = base.displaySmall.copy(fontFamily = font),
             headlineLarge = base.headlineLarge.copy(fontFamily = font),
             headlineMedium = base.headlineMedium.copy(fontFamily = font),
+            headlineSmall = base.headlineSmall.copy(fontFamily = font),
             titleLarge = base.titleLarge.copy(fontFamily = font),
             titleMedium = base.titleMedium.copy(fontFamily = font),
+            titleSmall = base.titleSmall.copy(fontFamily = font),
             bodyLarge = base.bodyLarge.copy(fontFamily = font),
             bodyMedium = base.bodyMedium.copy(fontFamily = font),
-            labelLarge = base.labelLarge.copy(fontFamily = font)
+            bodySmall = base.bodySmall.copy(fontFamily = font),
+            labelLarge = base.labelLarge.copy(fontFamily = font),
+            labelMedium = base.labelMedium.copy(fontFamily = font),
+            labelSmall = base.labelSmall.copy(fontFamily = font)
         ),
         content = { CompositionLocalProvider(LocalContentColor provides Color.White, LocalBringIntoViewSpec provides TvFocusScroll, content = content) }
     )

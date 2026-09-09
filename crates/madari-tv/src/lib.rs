@@ -146,8 +146,8 @@ impl Bridge {
         };
         self.runtime.block_on(async {
             match operation {
-                "profiles" => return Ok(json!({"profiles": profiles.list().await?, "active_kids": profiles.active_kids().await?})),
-                "create_profile" => return encode(profiles.create(active_session.clone(), string(&args,"name"), args["kids"].as_bool().unwrap_or(false), string(&args,"pin")).await?),
+                "profiles" => return Ok(json!({"profiles": profiles.list().await?, "active_kids": profiles.active_kids().await?, "avatars": madari_native::profiles::avatars::catalog()})),
+                "create_profile" => return encode(profiles.create_with_avatar(active_session.clone(), string(&args,"name"), args["kids"].as_bool().unwrap_or(false), string(&args,"pin"), avatar_arg(&args)?).await?),
                 "unlock" => { let session = profiles.unlock(string(&args,"id"), string(&args,"pin")).await?; let profile = session.profile.clone(); self.state.lock().map_err(|_| invalid("Native state unavailable"))?.session = Some(session); return encode(profile); }
                 _ => {}
             }
@@ -157,6 +157,13 @@ impl Bridge {
                 "leave" => { profiles.leave(session, string(&args,"pin")).await?; self.state.lock().map_err(|_| invalid("Native state unavailable"))?.session = None; Ok(Value::Null) }
                 "authorize" => { profiles.authorize_settings(session, string(&args,"pin")).await?; Ok(Value::Null) }
                 "lock_settings" => { profiles.lock_settings(session).await?; Ok(Value::Null) }
+                "update_profile" => {
+                    if args.get("avatar").is_some() {
+                        encode(profiles.update_with_avatar(session, string(&args,"name"), string(&args,"pin"), avatar_arg(&args)?).await?)
+                    } else {
+                        encode(profiles.update(session, string(&args,"name"), string(&args,"pin")).await?)
+                    }
+                },
                 "snapshot" => encode(core.snapshot().await?),
                 "calendar" => {
                     let calendar = core.calendar().await?;
@@ -196,6 +203,15 @@ impl Bridge {
         })
     }
 }
+fn avatar_arg(args: &Value) -> Result<Option<String>> {
+    match args.get("avatar") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(id)) if id.is_empty() => Ok(None),
+        Some(Value::String(id)) => Ok(Some(id.clone())),
+        _ => Err(invalid("Invalid profile image")),
+    }
+}
+
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
 fn bridge() -> Result<&'static Bridge> {
     BRIDGE
@@ -403,6 +419,30 @@ pub extern "system" fn Java_dev_madari_tv_core_NativeCore_closeMedia(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn avatar_catalog_and_profile_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = Bridge::open(dir.path().into()).unwrap();
+        let choices = b.call("profiles", json!({})).unwrap();
+        assert!(choices["avatars"].as_array().unwrap().iter().any(|a| a["id"] == "Fox.webp"));
+        let profile = b.call("create_profile", json!({"name":"TV","avatar":"Fox.webp"})).unwrap();
+        assert_eq!(profile["avatar"], "Fox.webp");
+        b.call("unlock", json!({"id":profile["id"]})).unwrap();
+        assert!(b.call("update_profile", json!({"name":"TV","avatar":"Duck.webp"})).is_err());
+        b.call("authorize", json!({})).unwrap();
+        let renamed = b.call("update_profile", json!({"name":"Renamed"})).unwrap();
+        assert_eq!(renamed["avatar"], "Fox.webp");
+        assert!(b.call("update_profile", json!({"name":"Wrong","avatar":123})).is_err());
+        let changed = b.call("update_profile", json!({"name":"Renamed","avatar":"Black Cat.webp"})).unwrap();
+        assert_eq!(changed["avatar"], "Black Cat.webp");
+        drop(b);
+        let b = Bridge::open(dir.path().into()).unwrap();
+        assert_eq!(b.call("profiles", json!({})).unwrap()["profiles"][0]["avatar"], "Black Cat.webp");
+        b.call("unlock", json!({"id":profile["id"]})).unwrap();
+        b.call("authorize", json!({})).unwrap();
+        assert!(b.call("update_profile", json!({"name":"TV","avatar":""})).unwrap()["avatar"].is_null());
+    }
+
     #[test]
     fn profiles_persist_and_settings_require_authorization() {
         let dir = tempfile::tempdir().unwrap();

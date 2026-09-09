@@ -40,12 +40,7 @@ impl Ui {
         grid.set_margin_top(24);
         for (index, profile) in profiles.iter().enumerate() {
             let card = gtk::Box::new(gtk::Orientation::Vertical, 10);
-            let avatar = adw::Avatar::builder()
-                .size(72)
-                .text(&profile.name)
-                .show_initials(true)
-                .halign(gtk::Align::Center)
-                .build();
+            let avatar = self.profile_artwork(&profile.name, profile.avatar.as_deref(), 72);
             card.append(&avatar);
             let name = label(&profile.name, "profile-name");
             name.set_lines(2);

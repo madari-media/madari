@@ -13,6 +13,7 @@ data class TvState(
     val resumingTitle: String? = null,
     val error: String? = null,
     val profiles: List<JSONObject> = emptyList(),
+    val profileAvatars: List<JSONObject> = emptyList(),
     val activeKids: String = "",
     val profile: JSONObject? = null,
     val snapshot: JSONObject = JSONObject(),

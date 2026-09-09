@@ -39,6 +39,8 @@ fun Glyph(name: String, modifier: Modifier = Modifier, color: Color = LocalConte
         "plus" -> "M12,4V20 M4,12H20"
         "info" -> "M12,2a10,10 0,1 0,0,20a10,10 0,1 0,0,-20 M12,10V17 M12,6V6.1"
         "close" -> "M5,5L19,19 M5,19L19,5"
+        "lock" -> "M7,11V8a5,5 0,1 1,10,0v3 M5,11H19V21H5Z"
+        "smile" -> "M12,2a10,10 0,1 0,0,20a10,10 0,1 0,0,-20 M8,9V9.1 M16,9V9.1 M8,14Q12,18 16,14"
         else -> "M5,5H19V19H5Z"
     }).toPath() }
     Canvas(modifier.size(22.dp)) {

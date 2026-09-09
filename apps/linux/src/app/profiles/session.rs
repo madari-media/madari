@@ -69,6 +69,8 @@ impl Ui {
     pub(in crate::app) fn create_dialog(self: &Rc<Self>, actor: Option<ProfileSession>) {
         let fields = form();
         let name = entry("Profile name", false);
+        let (image_field, avatar) = self.avatar_field("", None);
+        fields.append(&image_field);
         let pin = entry("Optional PIN (4–8 digits)", true);
         let kids = gtk::CheckButton::with_label("Kids profile — uses your PIN for adult controls");
         fields.append(&name);
@@ -81,7 +83,8 @@ impl Ui {
         self.dialog("Create profile", "Each profile has its own addons and viewing state. Creating a kids profile requires a PIN on your regular profile.",&fields,"Create",move |ui|{
             let profiles=ui.profiles.clone(); let s=actor.clone(); let name=name.text().to_string(); let pin=pin.text().to_string();let kids=kids.is_active();
             let entry_pin=pin.clone();
-            ui.run(async move {profiles.create(s,name,kids,pin).await},move |ui,p|ui.open(p.id,entry_pin));
+            let avatar=avatar.borrow().clone();
+            ui.run(async move {profiles.create_with_avatar(s,name,kids,pin,avatar).await},move |ui,p|ui.open(p.id,entry_pin));
         });
     }
 }

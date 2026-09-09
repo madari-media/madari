@@ -93,24 +93,37 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissError() { mutable.update { it.copy(error = null) } }
     private suspend fun loadProfiles() {
         val result = repository.objectCall("profiles")
-        mutable.update { it.copy(profiles = result.optJSONArray("profiles").objects(), activeKids = result.optJSONObject("active_kids")?.text("id").orEmpty()) }
+        mutable.update { it.copy(profiles = result.optJSONArray("profiles").objects(), profileAvatars = result.optJSONArray("avatars").objects(), activeKids = result.optJSONObject("active_kids")?.text("id").orEmpty()) }
     }
-    fun createProfile(name: String, pin: String, kids: Boolean = false) = run {
-        repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids)); loadProfiles()
+    fun createProfile(name: String, pin: String, kids: Boolean = false, avatar: String = "") = run {
+        repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids, "avatar" to avatar)); loadProfiles()
     }
     /**
      * Create a profile from the picker. The native core requires an authorized regular
      * profile when profiles already exist, so unlock the chosen adult, authorize it,
      * create the profile and always close the temporary session afterwards.
      */
-    fun addProfile(adult: JSONObject, adultPin: String, name: String, pin: String, kids: Boolean) = run {
+    fun addProfile(adult: JSONObject, adultPin: String, name: String, pin: String, kids: Boolean, avatar: String = "") = run {
         try {
             repository.objectCall("unlock", obj("id" to adult.text("id"), "pin" to adultPin))
             repository.call("authorize", obj("pin" to adultPin))
-            repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids))
+            repository.call("create_profile", obj("name" to name, "pin" to pin, "kids" to kids, "avatar" to avatar))
         } finally {
             // Never leave the picker holding another profile's session.
             try { repository.call("leave", obj("pin" to adultPin)) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Already gone. */ }
+        }
+        loadProfiles()
+    }
+    /** Rename a profile or replace its PIN from the picker, then close the temporary session. */
+    fun updateProfile(profile: JSONObject, currentPin: String, name: String, pin: String, avatar: String = profile.text("avatar")) = run {
+        try {
+            repository.objectCall("unlock", obj("id" to profile.text("id"), "pin" to currentPin))
+            repository.call("authorize", obj("pin" to currentPin))
+            repository.call("update_profile", obj("name" to name, "pin" to pin, "avatar" to avatar))
+        } finally {
+            try { repository.call("leave", obj("pin" to currentPin)) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Already gone. */ }
         }

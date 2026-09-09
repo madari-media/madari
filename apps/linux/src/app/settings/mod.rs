@@ -61,6 +61,10 @@ impl Ui {
             .text(&profile.name)
             .build();
         identity.add(&name);
+        let (image_field, avatar) = self.avatar_field(&profile.name, profile.avatar.as_deref());
+        let image_row = adw::ActionRow::builder().title("Profile image").build();
+        image_row.add_suffix(&image_field);
+        identity.add(&image_row);
         let pin = adw::PasswordEntryRow::builder().title("New PIN").build();
         if !profile.kids {
             identity.add(&pin);
@@ -79,8 +83,9 @@ impl Ui {
             let session = ui.session.borrow().as_ref().unwrap().clone();
             let name = name.text().to_string();
             let pin = pin.text().to_string();
+            let avatar = avatar.borrow().clone();
             ui.run(
-                async move { profiles.update(session, name, pin).await },
+                async move { profiles.update_with_avatar(session, name, pin, avatar).await },
                 |ui, p| {
                     ui.session.borrow_mut().as_mut().unwrap().profile = p;
                     ui.refresh();

@@ -137,6 +137,7 @@ button.continue-remove:hover { background: rgba(60,60,68,.95); }
 .profile-heading { font-size: 36px; font-weight: 750; letter-spacing: -1px; margin-top: 12px; }
 .profile-subtitle { color: #9c9cae; font-size: 14px; }
 .profile-grid > flowboxchild { padding: 0; }
+.profile-image { border-radius: 12px; }
 button.profile-tile { min-width: 114px; padding: 20px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: #15151d; box-shadow: none; }
 button.profile-tile:hover { background: #22222d; border-color: rgba(255,255,255,.35); }
 button.profile-tile:focus-visible { outline: 2px solid #f4f4f6; outline-offset: 3px; }
