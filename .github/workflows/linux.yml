@@ -6,7 +6,7 @@ name: Linux app
 # enough to satisfy it instead.
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

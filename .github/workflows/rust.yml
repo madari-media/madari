@@ -4,7 +4,7 @@ name: Rust
 # therefore a newer base image than this runner: see linux.yml.
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

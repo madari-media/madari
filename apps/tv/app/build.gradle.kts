@@ -10,8 +10,15 @@ android {
         applicationId = "dev.madari.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Release Please rewrites the versionName line in its release PR. The
+        // versionCode is derived from it so the two cannot disagree, and it
+        // stays monotonic as Android requires (0.2.1 -> 201).
+        versionName = "0.1.0" // x-release-please-version
+        versionCode =
+            requireNotNull(versionName)
+                .substringBefore('-')
+                .split('.')
+                .fold(0) { code, part -> code * 100 + part.toInt() }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }

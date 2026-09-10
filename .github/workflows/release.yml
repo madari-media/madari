@@ -1,0 +1,79 @@
+name: Release
+
+# Release Please keeps an open release PR on main. Merging that PR is what cuts
+# the release: it writes the version into CHANGELOG.md and
+# apps/tv/app/build.gradle.kts, tags the merge commit, and publishes the GitHub
+# Release. This same run then builds the APK for that tag and attaches it.
+#
+# The build deliberately lives in this workflow rather than in a separate
+# `on: release` one: a release created with the default GITHUB_TOKEN does not
+# trigger further workflows, so a separate listener would never fire.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  propose:
+    name: release PR
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    name: APK for the tag
+    needs: propose
+    if: needs.propose.outputs.released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ needs.propose.outputs.tag }}
+
+  attach:
+    name: attach the APK
+    needs: [propose, build]
+    if: needs.propose.outputs.released == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: madari-tv-performance-apk
+          path: dist
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.propose.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "::error::the APK did not report a version"
+            exit 1
+          fi
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match the APK version $VERSION"
+            exit 1
+          fi
+          asset="madari-tv-${VERSION}-performance.apk"
+          mv dist/app-performance.apk "dist/$asset"
+          gh release upload "$TAG" "dist/$asset" --clobber --repo "$GITHUB_REPOSITORY"

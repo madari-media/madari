@@ -1,10 +1,17 @@
 name: Android TV
 
+# Also called by release.yml to build the APK for a tag. Pushes to main are not
+# a trigger: pull_request covers the check, and the release build covers the tag,
+# so a push would only repeat nine minutes of work.
 on:
-  push:
-    branches: [master]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build. Defaults to the ref that triggered the run.
+        type: string
+        required: false
 
 concurrency:
   group: android-${{ github.ref }}
@@ -24,6 +31,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: actions/setup-java@v4
         with:
@@ -85,8 +94,25 @@ jobs:
               || { echo "::error::$abi is missing from the APK"; exit 1; }
           done
 
+      # The version the release PR wrote into build.gradle.kts, read back from
+      # the APK so a release cannot ship a stale or mismatched version.
+      - name: Report the packaged version
+        id: version
+        working-directory: apps/tv
+        run: |
+          apk=app/build/outputs/apk/performance/app-performance.apk
+          aapt=$(ls "$ANDROID_HOME"/build-tools/*/aapt | head -1)
+          badging=$("$aapt" dump badging "$apk")
+          name=$(echo "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          code=$(echo "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          echo "versionName=$name versionCode=$code"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
           name: madari-tv-performance-apk
           path: apps/tv/app/build/outputs/apk/performance/app-performance.apk
           retention-days: 14
+
+    outputs:
+      version: ${{ steps.version.outputs.name }}
