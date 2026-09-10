@@ -25,6 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The server's end_to_end test shells out to ffmpeg/ffprobe to build its
+      # fixture video; without them it fails on a NotFound spawn.
+      - name: ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+
       # Pinned rather than `stable`: clippy gains lints between releases, and a
       # -D warnings gate must not turn red without a code change.
       - uses: dtolnay/rust-toolchain@master

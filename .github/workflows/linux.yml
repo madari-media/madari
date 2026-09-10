@@ -33,7 +33,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             git ca-certificates curl build-essential pkg-config \
-            libgtk-4-dev libadwaita-1-dev libmpv-dev
+            libgtk-4-dev libadwaita-1-dev libmpv-dev ffmpeg
 
       - uses: actions/checkout@v4
 
@@ -49,6 +49,8 @@ jobs:
       - name: Clippy
         run: cargo clippy -p madari-linux --all-targets --locked -- -D warnings
 
-      # Widget-level tests: verified to pass with no DISPLAY, so no Xvfb here.
+      # Widget-level tests: verified to pass with no DISPLAY, so no Xvfb. The
+      # playback tests spawn ffmpeg to build their fixture video; mpv itself is
+      # used in-process through libmpv, so no mpv binary is needed.
       - name: Tests
         run: cargo test -p madari-linux --locked

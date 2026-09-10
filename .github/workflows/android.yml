@@ -32,6 +32,8 @@ jobs:
 
       # Before setup-node, so its `cache: pnpm` can find the pnpm store.
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/madari-tv/web/package.json
 
       # The native build embeds the web UI, so it needs Node and a real install.
       - uses: actions/setup-node@v4
