@@ -44,6 +44,8 @@ env:
   # The released macOS binary, not a source checkout. xtool's own package declares
   # swift-tools-version 6.2, so building it from source tied this job to a toolchain
   # newer than the runner's default and cost several minutes on every run.
+  # Building xtool from source is the fallback when the released binary will not run.
+  XTOOL_REF: 0f42dafce6d7bdcfbe2da9ad05c4dc8591d7dba9
   XTOOL_VERSION: 1.19.0
 
 jobs:
@@ -52,6 +54,11 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # A runner whose Xcode licence has not been accepted waits on the first
+      # xcodebuild call instead of failing, which is a long time to wait for nothing.
+      - name: Accept the Xcode licence
+        run: sudo xcodebuild -license accept || true
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -126,13 +133,41 @@ jobs:
             exit 1
           fi
           chmod +x "$BIN"
+          echo "XTOOL_BIN=$PWD/$BIN" >> "$GITHUB_ENV"
           echo "$(cd "$(dirname "$BIN")" && pwd)" >> "$GITHUB_PATH"
+
+      # Bounded on purpose: a probe with no terminal to talk to can wait for ever, and a
+      # hang here is indistinguishable from a slow build.
+      - name: Check the downloaded xtool runs
+        id: xtool
+        run: |
+          "$XTOOL_BIN" --version > /tmp/xtool.out 2>&1 &
+          pid=$!
+          waited=0
+          while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 60 ]; do sleep 2; waited=$((waited + 2)); done
+          if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            echo "usable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::the released xtool binary did not answer --version within 60s"
+          else
+            cat /tmp/xtool.out
+            echo "usable=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Report the toolchain
         run: |
-          xtool --version
           swift --version
           xcodebuild -version
+
+      # Only when the released binary did not answer. macos-26 ships a Swift new enough
+      # for xtool's own package, which is all this build needs.
+      - name: Build xtool from source
+        if: steps.xtool.outputs.usable != 'true'
+        run: |
+          git clone --filter=blob:none https://github.com/xtool-org/xtool .xtool
+          git -C .xtool checkout "$XTOOL_REF"
+          swift build -c release --package-path .xtool
+          echo "$PWD/.xtool/.build/release" >> "$GITHUB_PATH"
 
       # Cross-compiles madari-ios (and madari-tv/madari-native it depends on) to
       # aarch64-apple-ios and refreshes the Swift bindings the app compiles against.
