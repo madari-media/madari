@@ -27,6 +27,12 @@ concurrency:
 permissions:
   contents: read
 
+# A container job runs `sh` by default, which is fine for these steps but easy to
+# trip over later; be explicit about the shell the steps are written for.
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_TERM_COLOR: always
 
