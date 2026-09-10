@@ -1,7 +1,7 @@
 name: Rust
 
-# The workspace covers every Rust surface: the shared crates, apps/server and
-# apps/linux. apps/tv is Android and gets its own workflow.
+# Everything in the workspace except apps/linux, which needs pango >= 1.56 and
+# therefore a newer base image than this runner: see linux.yml.
 on:
   push:
     branches: [master]
@@ -25,14 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # apps/linux links GTK4, libadwaita and libmpv, so the workspace will not
-      # build anywhere without these.
-      - name: System dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            libgtk-4-dev libadwaita-1-dev libmpv-dev
-
       # Pinned rather than `stable`: clippy gains lints between releases, and a
       # -D warnings gate must not turn red without a code change.
       - uses: dtolnay/rust-toolchain@master
@@ -46,10 +38,10 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --exclude madari-linux --all-targets --locked -- -D warnings
 
       # madari-tv embeds the web UI with include_str!. build.rs writes honest
-      # placeholders when web/dist is absent, so this job does not need the
-      # Node build; the Web workflow covers the real assets.
+      # placeholders when web/dist is absent, so this job does not need the Node
+      # build; the Web workflow covers the real assets.
       - name: Tests
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --exclude madari-linux --locked

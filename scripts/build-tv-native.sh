@@ -7,10 +7,10 @@ cd "$(dirname "$0")/.."
 if [[ "${MADARI_SKIP_WEB_BUILD:-}" != "1" ]]; then
   web="crates/madari-tv/web"
   if [[ ! -d "$web/node_modules" ]]; then
-    echo "Missing $web/node_modules. Run 'npm install' there, or set MADARI_SKIP_WEB_BUILD=1 to reuse the existing dist." >&2
+    echo "Missing $web/node_modules. Run 'pnpm install' there, or set MADARI_SKIP_WEB_BUILD=1 to reuse the existing dist." >&2
     exit 1
   fi
-  (cd "$web" && npm run build)
+  (cd "$web" && pnpm run build)
 fi
 
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"

@@ -1,0 +1,54 @@
+name: Linux app
+
+# apps/linux links gtk4, libadwaita, libmpv and pango. Its pango requirement is
+# >= 1.56 (the v1_56 feature), but the ubuntu-24.04 runner ships 1.52, so this
+# app cannot be checked there at all. It runs in a container on a base image new
+# enough to satisfy it instead.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  app:
+    name: clippy and test
+    runs-on: ubuntu-24.04
+    container: debian:trixie-slim
+    steps:
+      # Installed before checkout: a container job has no git of its own, and
+      # actions/checkout needs one on PATH.
+      - name: System dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl build-essential pkg-config \
+            libgtk-4-dev libadwaita-1-dev libmpv-dev
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Building this crate pulls the whole shared graph through it, so this also
+      # type-checks core/native/media against a GTK host.
+      - name: Clippy
+        run: cargo clippy -p madari-linux --all-targets --locked -- -D warnings
+
+      # Widget-level tests: verified to pass with no DISPLAY, so no Xvfb here.
+      - name: Tests
+        run: cargo test -p madari-linux --locked

@@ -1,0 +1,16 @@
+# pnpm 11 enables a minimum package age by default. That makes the SAME committed
+# lockfile install or fail depending on wall-clock time: any dependency published
+# within the cutoff is rejected, so a fresh `pnpm install` in CI can fail for a
+# day after a routine dependency bump with no code change. Pinning it to 0 here
+# keeps installs deterministic and reproducible against the lockfile.
+#
+# To opt back into the supply-chain delay, set a non-zero value (minutes) and run
+# `pnpm install` once so the lockfile is re-resolved to versions that satisfy it.
+minimumReleaseAge: 0
+
+# @astryxdesign/core and @astryxdesign/cli run a postinstall that prints a one-line
+# setup nudge. Allow exactly those two so an install does not fail on ignored
+# build scripts; nothing else in this tree runs code at install time.
+allowBuilds:
+  '@astryxdesign/core': true
+  '@astryxdesign/cli': true
