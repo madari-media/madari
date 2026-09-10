@@ -12,6 +12,13 @@ on:
         description: Git ref to build. Defaults to the ref that triggered the run.
         type: string
         required: false
+    # Declared here, not only on the job: a workflow invoked with `uses:` exposes
+    # outputs through workflow_call, so a job-level output alone would leave
+    # `needs.<job>.outputs.version` empty for the caller.
+    outputs:
+      version:
+        description: versionName read back out of the built APK
+        value: ${{ jobs.apk.outputs.version }}
 
 concurrency:
   group: android-${{ github.ref }}
