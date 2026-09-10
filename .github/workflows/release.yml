@@ -31,9 +31,22 @@ jobs:
       released: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
     steps:
+      # The organisation blocks GitHub Actions from creating pull requests
+      # (Settings → Actions → General → Workflow permissions), so the run's own
+      # GITHUB_TOKEN is refused with "GitHub Actions is not permitted to create or
+      # approve pull requests". A fine-grained PAT scoped to this repository
+      # bypasses that, because the pull request is then authored by a person.
+      #
+      # Create one at https://github.com/settings/personal-access-tokens/new with
+      # repository access limited to this repo and these permissions:
+      #   Contents: Read and write, Pull requests: Read and write
+      # then save it as the RELEASE_PLEASE_TOKEN repository secret. Without the
+      # secret this falls back to GITHUB_TOKEN, which only works if the
+      # organisation setting is turned on instead.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
