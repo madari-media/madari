@@ -7,6 +7,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 publish = false
+license = "MIT"
+authors = ["Omkar Yadav <omkar@anthaathi.co>"]
+repository = "https://github.com/madari-media/madari"
+homepage = "https://github.com/madari-media/madari"
 
 [workspace.dependencies]
 madari-model = { path = "crates/madari-model" }

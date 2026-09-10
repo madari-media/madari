@@ -1,0 +1,127 @@
+name: Linux packages
+
+# Produces .deb, .rpm and .AppImage for amd64 and arm64. Callable by release.yml
+# so a tag gets the same packages.
+#
+# On pull requests only amd64 runs: the point there is to catch a broken
+# manifest or a missing asset, and the arm64 leg doubles the cost of the slowest
+# job in CI. Releases build both.
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to package. Defaults to the ref that triggered the run.
+        type: string
+        required: false
+    outputs:
+      version:
+        description: Version packaged, read from the workspace Cargo.toml
+        value: ${{ jobs.package.outputs.version }}
+
+concurrency:
+  group: linux-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: ${{ matrix.arch }} packages
+    runs-on: ${{ matrix.runner }}
+    # debian:trixie rather than the runner image: apps/linux needs pango >= 1.56
+    # and gtk4/libadwaita/mpv headers, which ubuntu-24.04 does not have.
+    container: debian:trixie-slim
+    if: github.event_name != 'pull_request' || matrix.arch == 'amd64'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # Installed before checkout: a container job has no git of its own.
+      - name: System dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl build-essential pkg-config file \
+            libgtk-4-dev libadwaita-1-dev libmpv-dev
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Prebuilt binaries, rather than `cargo install`, which would add minutes
+      # of compilation to every run.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+
+      - name: Build
+        run: cargo build --locked --release -p madari-linux
+
+      - name: Version
+        id: version
+        run: |
+          version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "packaging $version for ${{ matrix.arch }}"
+
+      # Named explicitly so the released filenames say which architecture they
+      # are for, instead of Debian's amd64/arm64 versus RPM's x86_64/aarch64.
+      - name: Debian package
+        run: |
+          cargo deb -p madari-linux --no-build
+          version='${{ steps.version.outputs.version }}'
+          mkdir -p dist
+          # cargo-deb writes <name>_<version>-1_<arch>.deb
+          find target/debian -name '*.deb' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.deb" \;
+
+      - name: RPM package
+        run: |
+          cargo generate-rpm -p apps/linux
+          version='${{ steps.version.outputs.version }}'
+          mkdir -p dist
+          find target/generate-rpm -name '*.rpm' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.rpm" \;
+
+      - name: AppImage
+        run: ./scripts/package-linux-appimage.sh '${{ steps.version.outputs.version }}'
+        env:
+          # appimagetool is itself an AppImage; extracting avoids needing FUSE in
+          # the container. The script sets this too, for local runs.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+
+      - name: Collect and verify the AppImage
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          mkdir -p dist
+          cp "target/appimage/Madari-${version}-$(uname -m).AppImage" \
+             "dist/madari-${version}-${{ matrix.arch }}.AppImage"
+          echo "--- dist ---"
+          ls -la dist
+          for expected in deb rpm AppImage; do
+            ls dist/*.$expected >/dev/null 2>&1 \
+              || { echo "::error::no .$expected was produced"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: madari-linux-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 14

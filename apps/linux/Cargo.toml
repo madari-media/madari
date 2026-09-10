@@ -4,6 +4,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Stream your addon library on the desktop"
+repository.workspace = true
+homepage.workspace = true
+
+# The desktop entry execs `madari`, so the binary is named to match rather than
+# leaving users with a `madari-linux` command.
+[[bin]]
+name = "madari"
+path = "src/main.rs"
 
 [dependencies]
 adw.workspace = true
@@ -31,3 +42,56 @@ libc = "0.2"
 madari-media.workspace = true
 async-trait.workspace = true
 axum.workspace = true
+
+# Debian package layout, read by `cargo deb`.
+[package.metadata.deb]
+name = "madari"
+maintainer = "Omkar Yadav <omkar@anthaathi.co>"
+copyright = "2026, Omkar Yadav"
+license-file = ["../../LICENSE", "0"]
+extended-description = """\
+Madari plays your addon library on the desktop: catalogs, continue watching,
+playback progress and downloads, driven by the same core as the other apps.
+"""
+section = "video"
+priority = "optional"
+# Listed rather than $auto: $auto needs dpkg-shlibdeps, which only exists on
+# Debian-derived hosts, so building the package anywhere else would silently
+# produce a package with no dependencies at all. The pango bound is the real
+# requirement — the app uses pango 1.56 APIs, so an older pango installs but
+# then fails at runtime with a symbol lookup error.
+depends = "libgtk-4-1, libadwaita-1-0, libmpv2, libpango-1.0-0 (>= 1.56)"
+assets = [
+    ["target/release/madari", "usr/bin/", "755"],
+    ["assets/io.github.madari.Madari.desktop", "usr/share/applications/", "644"],
+    ["assets/icons/16x16.png", "usr/share/icons/hicolor/16x16/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/24x24.png", "usr/share/icons/hicolor/24x24/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/32x32.png", "usr/share/icons/hicolor/32x32/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/48x48.png", "usr/share/icons/hicolor/48x48/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/64x64.png", "usr/share/icons/hicolor/64x64/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/128x128.png", "usr/share/icons/hicolor/128x128/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/256x256.png", "usr/share/icons/hicolor/256x256/apps/io.github.madari.Madari.png", "644"],
+    ["assets/icons/512x512.png", "usr/share/icons/hicolor/512x512/apps/io.github.madari.Madari.png", "644"],
+]
+
+# RPM layout, read by `cargo generate-rpm`.
+[package.metadata.generate-rpm]
+name = "madari"
+license = "MIT"
+summary = "Stream your addon library"
+url = "https://github.com/madari-media/madari"
+# Derived from the ELF rather than listed, because the library package names
+# differ between Fedora (gtk4, mpv-libs) and openSUSE (libgtk-4-1, libmpv2).
+auto-req = "auto"
+assets = [
+    { source = "target/release/madari", dest = "/usr/bin/madari", mode = "755" },
+    { source = "assets/io.github.madari.Madari.desktop", dest = "/usr/share/applications/", mode = "644" },
+    { source = "assets/icons/16x16.png", dest = "/usr/share/icons/hicolor/16x16/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/24x24.png", dest = "/usr/share/icons/hicolor/24x24/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/32x32.png", dest = "/usr/share/icons/hicolor/32x32/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/48x48.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/64x64.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/128x128.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/256x256.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.github.madari.Madari.png", mode = "644" },
+    { source = "assets/icons/512x512.png", dest = "/usr/share/icons/hicolor/512x512/apps/io.github.madari.Madari.png", mode = "644" },
+]

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Madari
+Comment=Stream your addon library
+Exec=madari
+Icon=io.github.madari.Madari
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=video;player;media;stream;addon;
+StartupNotify=true
+StartupWMClass=io.github.madari.Madari
