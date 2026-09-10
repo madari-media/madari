@@ -37,7 +37,12 @@ fi
 # cc-rs resolves Apple SDK paths through xcrun unless SDKROOT is already set, and
 # there is no xcrun on Linux. rusqlite's bundled SQLite and network-interface's C
 # helper both go through cc-rs, so this is required for any iOS build here.
-export SDKROOT="$sdk"
+# Only set where there is no xcrun to resolve the path. On macOS this variable is not
+# target-scoped, so it also reaches the macOS build scripts cargo compiles on the way to
+# the iOS target, whose link then fails against iPhoneOS libraries.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  export SDKROOT="$sdk"
+fi
 export IPHONEOS_DEPLOYMENT_TARGET="$deployment"
 export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$clang"
 export CC_aarch64_apple_ios="$clang"
@@ -45,7 +50,13 @@ export CXX_aarch64_apple_ios="$clang++"
 export AR_aarch64_apple_ios="${MADARI_IOS_AR:-ar}"
 export CFLAGS_aarch64_apple_ios="-isysroot $sdk -target arm64-apple-ios$deployment"
 export CXXFLAGS_aarch64_apple_ios="-isysroot $sdk -target arm64-apple-ios$deployment"
-export RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$sdk"
+# Same reason as SDKROOT: the global form applies to the host targets too, so on macOS
+# the sysroot is handed to the iOS target alone.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$sdk"
+else
+  export RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$sdk"
+fi
 
 # Only the static library is linked into the app; building the cdylib too would
 # produce a second, unused artifact for every build. Skipped by the CI bindings
