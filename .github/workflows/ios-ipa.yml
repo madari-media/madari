@@ -1,0 +1,183 @@
+name: iOS IPA
+
+# Builds an unsigned .ipa for sideloading (xtool install, Sideloadly, AltStore).
+#
+# Deliberately unsigned: signing would need Apple credentials in this repository's
+# secrets, and an unsigned ipa keeps the artifact useful to anyone. The cost is that
+# the installer has to re-sign it, which is what those tools do anyway.
+#
+# `workflow_call` exists so the release flow can run this as one of its jobs. A tag
+# is not enough on its own: release-please pushes its tag with GITHUB_TOKEN, and a
+# release created that way does not trigger further workflows. That is the same
+# reason the APK is built inside release.yml rather than by a listener on `release`.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to attach the ipa to.
+        type: string
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to attach the ipa to, e.g. v0.2.0. Leave empty to only upload a workflow artifact.
+        type: string
+        required: false
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+# Writing is needed for the attach step below, which only runs on a dispatch that
+# passes a tag. The release flow calls this without one and attaches the artifact
+# itself, but a called workflow cannot be granted more than its caller, so the
+# permission has to be declared here.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # The committed crates/madari-tv/web/dist is what gets embedded; the web UI has
+  # its own workflow that regenerates and diffs it.
+  MADARI_SKIP_WEB_BUILD: "1"
+  # xtool generates the Xcode project this job builds. Pinned so a change upstream
+  # cannot alter what a release produces.
+  XTOOL_REF: 0f42dafce6d7bdcfbe2da9ad05c4dc8591d7dba9
+
+jobs:
+  ipa:
+    name: Unsigned ipa
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-ipa
+
+      # The TV web settings UI is embedded into madari-tv with include_str!, so the
+      # crate cannot compile without it. The committed dist is enough here.
+      - name: Assert the embedded web bundle is present
+        run: |
+          for asset in index.html app.js style.css; do
+            test -f "crates/madari-tv/web/dist/$asset" \
+              || { echo "::error::crates/madari-tv/web/dist/$asset is missing"; exit 1; }
+          done
+
+      # ~500MB of XCFrameworks. Cached, but the key includes the script's pinned
+      # checksum so a version bump always refetches.
+      - name: Cache libmpv XCFrameworks
+        id: mpv-cache
+        uses: actions/cache@v4
+        with:
+          path: apps/ios/native/mpv
+          key: ios-mpv-${{ hashFiles('scripts/fetch-ios-mpv.sh') }}
+
+      - name: Fetch libmpv
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        run: bash scripts/fetch-ios-mpv.sh
+
+      - name: Cache xtool
+        id: xtool-cache
+        uses: actions/cache@v4
+        with:
+          path: .xtool
+          key: xtool-${{ env.XTOOL_REF }}-${{ runner.os }}
+
+      # macOS ships Swift and the iOS SDK, so no Darwin Swift SDK download is needed
+      # here — that is the one thing this job does not share with a Linux build.
+      - name: Install xtool
+        if: steps.xtool-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none https://github.com/xtool-org/xtool .xtool
+          git -C .xtool checkout "$XTOOL_REF"
+          swift build -c release --package-path .xtool
+
+      - name: Put xtool on PATH
+        run: echo "$PWD/.xtool/.build/release" >> "$GITHUB_PATH"
+
+      # Cross-compiles madari-ios (and madari-tv/madari-native it depends on) to
+      # aarch64-apple-ios and refreshes the Swift bindings the app compiles against.
+      - name: Build the Rust core and bindings
+        run: bash scripts/build-ios-native.sh
+
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: xtool dev generate-xcode-project
+
+      # Discovered rather than hardcoded: xtool owns where it writes this, and the
+      # scheme name follows the package name.
+      - name: Locate the generated project
+        id: project
+        working-directory: apps/ios
+        run: |
+          PROJECT=$(find . -name '*.xcodeproj' -maxdepth 3 -print -quit)
+          test -n "$PROJECT" || { echo "::error::xtool generated no Xcode project"; exit 1; }
+          echo "path=$PROJECT" >> "$GITHUB_OUTPUT"
+          SCHEME=$(xcodebuild -list -json -project "$PROJECT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Building $SCHEME from $PROJECT"
+
+      # An ipa is only useful if every embedded framework made it in, and libmpv is
+      # 18 dynamic frameworks — exactly the kind of thing that goes missing quietly.
+      # Signing is off, which is what makes the result installable only after the
+      # installer re-signs it.
+      - name: Build unsigned
+        working-directory: apps/ios
+        run: |
+          xcodebuild \
+            -project "${{ steps.project.outputs.path }}" \
+            -scheme "${{ steps.project.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
+
+      - name: Package the ipa
+        working-directory: apps/ios
+        run: |
+          APP=$(find build/Build/Products -name '*.app' -maxdepth 2 -print -quit)
+          test -n "$APP" || { echo "::error::no .app was produced"; exit 1; }
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+          # Every libmpv framework must be embedded, or the app builds fine and then
+          # cannot decode Matroska on device.
+          MISSING=""
+          for framework in Ass Avcodec Avfilter Avformat Avutil Dav1d Freetype Fribidi \
+                           Harfbuzz Mbedcrypto Mbedtls Mbedx509 Mpv Png16 Swresample \
+                           Swscale Uchardet Xml2; do
+            test -d "$APP/Frameworks/$framework.framework" || MISSING="$MISSING $framework"
+          done
+          test -z "$MISSING" || { echo "::error::not embedded:$MISSING"; exit 1; }
+
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Madari-unsigned.ipa Payload
+          unzip -l Madari-unsigned.ipa | tail -1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: madari-ios-ipa
+          path: apps/ios/Madari-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          cp apps/ios/Madari-unsigned.ipa "Madari-ios-${VERSION}-unsigned.ipa"
+          gh release upload "$TAG" "Madari-ios-${VERSION}-unsigned.ipa" \
+            --clobber --repo "$GITHUB_REPOSITORY"

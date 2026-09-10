@@ -1,0 +1,63 @@
+name: iOS
+
+# The Swift app is built with xtool against a Darwin Swift SDK, which only exists on
+# the development machine (see docs/ios.md), so this job deliberately checks what is
+# verifiable without that SDK: the Rust boundary compiles and the committed Swift
+# bindings still match the Rust definitions they were generated from.
+#
+# A stale binding set is the failure that would otherwise only surface as a confusing
+# Swift compile error on a developer's machine, so it is gated here.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The committed crates/madari-tv/web/dist is what gets embedded; the web UI has
+  # its own workflow that regenerates and diffs it.
+  MADARI_SKIP_WEB_BUILD: "1"
+  MADARI_IOS_SKIP_TARGET: "1"
+
+jobs:
+  boundary:
+    name: Rust boundary and bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The TV web settings UI is embedded into madari-tv with include_str!, so the
+      # crate cannot compile without it. The committed dist is enough here.
+      - name: Assert the embedded web bundle is present
+        run: |
+          for asset in index.html app.js style.css; do
+            test -f "crates/madari-tv/web/dist/$asset" \
+              || { echo "::error::crates/madari-tv/web/dist/$asset is missing"; exit 1; }
+          done
+
+      # Compiles madari-tv, madari-native and the UniFFI boundary for the host and
+      # runs the profile/media round-trip tests that cross it.
+      - name: Test the iOS boundary
+        run: cargo test --locked -p madari-ios
+
+      - name: Check the shared crates
+        run: cargo check --locked -p madari-tv
+
+      # Regenerates the Swift bindings from a host build and fails on any difference.
+      # No Darwin SDK is needed: `uniffi-bindgen --library` reads a Linux cdylib.
+      - name: Assert the committed bindings are current
+        env:
+          MADARI_IOS_BINDINGS_CHECK: "1"
+        run: ./scripts/build-ios-native.sh

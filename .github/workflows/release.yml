@@ -78,9 +78,19 @@ jobs:
     with:
       ref: ${{ inputs.tag || needs.propose.outputs.tag }}
 
+  ios:
+    name: iOS ipa for the tag
+    needs: propose
+    if: always() && (needs.propose.outputs.released == 'true' || inputs.tag != '')
+    permissions:
+      contents: read
+    # No tag is passed: the attach job below owns uploading, so every artifact is
+    # renamed and validated in one place.
+    uses: ./.github/workflows/ios-ipa.yml
+
   attach:
     name: attach the artifacts
-    needs: [propose, build, linux]
+    needs: [propose, build, linux, ios]
     if: always() && needs.build.result == 'success' && needs.linux.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
@@ -99,6 +109,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: madari-linux-arm64
+          path: dist
+
+      # Guarded rather than required: an iOS build failure should cost the release
+      # its ipa, not its Android and Linux artifacts.
+      - if: needs.ios.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: madari-ios-ipa
           path: dist
 
       - name: Upload to the release
@@ -124,6 +142,11 @@ jobs:
             exit 1
           fi
           mv dist/app-performance.apk "dist/madari-tv-${APK_VERSION}-performance.apk"
+          # Present only when the iOS job succeeded, which the download step above
+          # already decided.
+          if [ -f dist/Madari-unsigned.ipa ]; then
+            mv dist/Madari-unsigned.ipa "dist/madari-ios-${APK_VERSION}-unsigned.ipa"
+          fi
           echo "--- attaching ---"
           ls -la dist
           gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
