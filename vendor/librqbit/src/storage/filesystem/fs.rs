@@ -148,16 +148,26 @@ impl TorrentStorage for FilesystemStorage {
                     .with_context(|| format!("error opening {full_path:?} in read/write mode"))?
             } else {
                 // create_new does not seem to work with read(true), so calling this twice.
-                OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .open(&full_path)
-                    .with_context(|| {
-                        format!(
-                            "error creating a new file (because allow_overwrite = false) {:?}",
-                            full_path
-                        )
-                    })?;
+                match OpenOptions::new().create_new(true).write(true).open(&full_path) {
+                    Ok(_) => {}
+                    // MADARI: a file that is already there is the normal case when a
+                    // source is played again, and the bytes already downloaded are still
+                    // valid. Failing here with EEXIST surfaced as "entity already
+                    // exists" and stopped playback outright, so reuse the file instead.
+                    // Piece hashes are still checked as data arrives, so anything stale
+                    // or corrupt is re-fetched; nothing is truncated and nothing is
+                    // overwritten. Only this error kind is treated as reuse, so real
+                    // failures still surface.
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "error creating a new file (because allow_overwrite = false) {:?}",
+                                full_path
+                            )
+                        })
+                    }
+                }
                 OpenOptions::new().read(true).write(true).open(&full_path)?
             };
             files.push(OpenedFile::new(full_path.clone(), f));

@@ -1,11 +1,10 @@
-//! Android JNI boundary. Policies and persistence stay in the shared Rust libraries.
+//! Shared platform boundary for the mobile clients: the [`Bridge`] that owns the
+//! runtime, profile session and torrent engine, plus the LAN web settings server.
+//!
+//! Each client has a thin FFI crate of its own — `madari-android` (JNI, the only
+//! `cdylib`) and `madari-ios` (UniFFI) — so this crate stays a plain library.
 mod web;
-use jni::{
-    JNIEnv,
-    objects::{JByteArray, JClass, JString},
-    sys::{jint, jlong, jstring},
-};
-use madari_core::{Core, PlaybackMedia};
+use madari_core::{Core, DEFAULT_ADDONS, PlaybackMedia};
 use madari_model::*;
 use madari_native::{
     internal_media::{InternalMedia, MediaFile},
@@ -17,7 +16,7 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicI64, AtomicU64, Ordering},
     },
     time::Duration,
@@ -101,6 +100,57 @@ impl Bridge {
                 "state":s.state,"downloaded":s.downloaded,"total":s.total,
                 "download_speed":s.download_bytes_per_second,"upload_speed":s.upload_bytes_per_second,"peers":s.peers
             })).unwrap_or(Value::Null));
+        }
+        if operation == "torrents" {
+            // What the torrents page lists. The player reported per-token progress only, so
+            // there was no way for a client to ask what is actually being downloaded.
+            return Ok(Value::Array(
+                self.media
+                    .managed()
+                    .into_iter()
+                    .map(|torrent| {
+                        json!({
+                            "id": torrent.id,
+                            "name": torrent.name,
+                            "state": torrent.stats.state,
+                            "downloaded": torrent.stats.downloaded,
+                            "total": torrent.stats.total,
+                            "download_speed": torrent.stats.download_bytes_per_second,
+                            "upload_speed": torrent.stats.upload_bytes_per_second,
+                            "peers": torrent.stats.peers,
+                            "path": torrent.download_directory.to_string_lossy(),
+                        })
+                    })
+                    .collect(),
+            ));
+        }
+        if operation == "torrent_play" {
+            // The one place playback tells the torrent engine what to fetch. Without the
+            // prioritise call, reads of a piece that has not arrived yet block until the
+            // download happens to reach them, which is why playback could stall at random
+            // percentages. The ticket it returns is wrapped in the usual internal URI.
+            let id = string(&args, "id");
+            let file = args.get("file").and_then(Value::as_u64).unwrap_or(0) as usize;
+            return self.runtime.block_on(async {
+                self.media.prioritize_playback(&id, file).await?;
+                let ticket = self.media.ticket(&id, file).await?;
+                Ok(json!({ "token": ticket.token }))
+            });
+        }
+        if operation == "torrent_pause" {
+            let id = string(&args, "id");
+            let paused = args.get("paused").and_then(Value::as_bool).unwrap_or(false);
+            return self
+                .runtime
+                .block_on(self.media.set_paused(&id, paused))
+                .map(|()| Value::Null);
+        }
+        if operation == "torrent_remove" {
+            let id = string(&args, "id");
+            return self
+                .runtime
+                .block_on(self.media.remove(&id))
+                .map(|()| Value::Null);
         }
         if operation == "player_state" {
             // The player lives in Kotlin, so it reports state here and the server
@@ -195,6 +245,12 @@ impl Bridge {
             let core: Arc<Core> = profiles.core(session.clone());
             match operation {
                 "leave" => { profiles.leave(session, string(&args,"pin")).await?; self.state.lock().map_err(|_| invalid("Native state unavailable"))?.session = None; Ok(Value::Null) }
+                "delete_profile" => {
+                    // Deleting ends the profile's own session, so the bridge drops it too.
+                    profiles.delete(session, string(&args,"pin")).await?;
+                    self.state.lock().map_err(|_| invalid("Native state unavailable"))?.session = None;
+                    Ok(Value::Null)
+                }
                 "authorize" => { profiles.authorize_settings(session, string(&args,"pin")).await?; Ok(Value::Null) }
                 "lock_settings" => { profiles.lock_settings(session).await?; Ok(Value::Null) }
                 "update_profile" => {
@@ -229,6 +285,20 @@ impl Bridge {
                 "enable" => encode(core.set_enabled(&string(&args,"id"), args["enabled"].as_bool().unwrap_or(false)).await?),
                 "remove_addon" => encode(core.remove_addon(&string(&args,"id")).await?),
                 "reorder" => encode(core.reorder(&decode::<Vec<String>>(args)?).await?),
+                "install_defaults" => encode(core.install_default_addons().await?),
+                // The curated list with its installed state, so a client can offer
+                // each one without hardcoding URLs.
+                "addon_catalog" => {
+                    let installed = core.installed_manifest_urls().await?;
+                    Ok(json!({
+                        "recommended": DEFAULT_ADDONS.iter().map(|entry| json!({
+                            "url": entry.url,
+                            "name": entry.name,
+                            "description": entry.description,
+                            "installed": installed.iter().any(|url| url == entry.url),
+                        })).collect::<Vec<_>>()
+                    }))
+                }
                 "share" => { profiles.share(session, string(&args,"id"), string(&args,"target_id"), string(&args,"pin")).await?; Ok(Value::Null) }
                 "linked_profiles" => encode(profiles.linked_profiles(session, string(&args,"id")).await?),
                 "trakt_status" => {
@@ -287,216 +357,96 @@ impl Bridge {
         })
     }
 }
+/// Result of one sequential read from an open internal media reader.
+///
+/// This mirrors the sentinel values the Android player's data source expects, but
+/// is expressed as a real type so the iOS resource loader can match on it too.
+pub enum ReaderRead {
+    /// The torrent piece is not available yet. Retry later; never end of stream.
+    Pending,
+    /// End of the stream.
+    Eof,
+    /// The next bytes in the stream.
+    Data(Vec<u8>),
+}
+impl Bridge {
+    /// Opens an internal media URI as a seekable reader and returns its handle.
+    pub fn open_reader(&self, uri: &str, position: u64) -> Result<i64> {
+        let mut file = self.runtime.block_on(self.media.open(uri))?;
+        if position > file.length {
+            return Err(invalid("Position exceeds file length"));
+        }
+        self.runtime
+            .block_on(file.reader.seek(std::io::SeekFrom::Start(position)))
+            .map_err(|_| invalid("Seek failed"))?;
+        let id = self.next_reader.fetch_add(1, Ordering::Relaxed);
+        self.readers
+            .lock()
+            .map_err(|_| invalid("Reader registry unavailable"))?
+            .insert(id, Arc::new(Mutex::new(file)));
+        Ok(id)
+    }
+    /// Total length of an open internal media stream.
+    pub fn reader_length(&self, id: i64) -> Result<u64> {
+        let reader = self.reader(id)?;
+        let file = reader.lock().map_err(|_| invalid("Reader unavailable"))?;
+        Ok(file.length)
+    }
+    /// Moves an open reader to `position` so the next read starts there.
+    pub fn seek_reader(&self, id: i64, position: u64) -> Result<()> {
+        let reader = self.reader(id)?;
+        let mut file = reader.lock().map_err(|_| invalid("Reader unavailable"))?;
+        if position > file.length {
+            return Err(invalid("Position exceeds file length"));
+        }
+        self.runtime
+            .block_on(file.reader.seek(std::io::SeekFrom::Start(position)))
+            .map_err(|_| invalid("Seek failed"))?;
+        Ok(())
+    }
+    /// Reads up to `length` bytes (capped at 256 KiB) from the reader's position.
+    ///
+    /// Waits at most one second for the torrent piece. [`ReaderRead::Pending`] means
+    /// the caller should retry instead of treating it as end of stream.
+    pub fn read_reader(&self, id: i64, length: usize) -> Result<ReaderRead> {
+        if length == 0 {
+            return Ok(ReaderRead::Eof);
+        }
+        let reader = self.reader(id)?;
+        let mut file = reader.lock().map_err(|_| invalid("Reader unavailable"))?;
+        let mut buffer = vec![0u8; length.min(256 * 1024)];
+        let read = match self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), file.reader.read(&mut buffer)).await
+        }) {
+            Err(_) => return Ok(ReaderRead::Pending),
+            Ok(result) => result.map_err(|_| invalid("Torrent read failed"))?,
+        };
+        if read == 0 {
+            return Ok(ReaderRead::Eof);
+        }
+        buffer.truncate(read);
+        Ok(ReaderRead::Data(buffer))
+    }
+    pub fn close_reader(&self, id: i64) {
+        if let Ok(mut readers) = self.readers.lock() {
+            readers.remove(&id);
+        }
+    }
+    fn reader(&self, id: i64) -> Result<Arc<Mutex<MediaFile>>> {
+        self.readers
+            .lock()
+            .map_err(|_| invalid("Reader registry unavailable"))?
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| invalid("Reader closed"))
+    }
+}
 fn avatar_arg(args: &Value) -> Result<Option<String>> {
     match args.get("avatar") {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(id)) if id.is_empty() => Ok(None),
         Some(Value::String(id)) => Ok(Some(id.clone())),
         _ => Err(invalid("Invalid profile image")),
-    }
-}
-
-static BRIDGE: OnceLock<Bridge> = OnceLock::new();
-fn bridge() -> Result<&'static Bridge> {
-    BRIDGE
-        .get()
-        .ok_or_else(|| invalid("Native library is not initialized"))
-}
-fn exception(env: &mut JNIEnv, error: impl std::fmt::Display) {
-    let _ = env.throw_new("java/io/IOException", error.to_string());
-}
-fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
-        .unwrap_or_else(|_| Err(invalid("Native operation failed")))
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_initialize(
-    mut env: JNIEnv,
-    _: JClass,
-    path: JString,
-) {
-    let result = guarded(|| {
-        if BRIDGE.get().is_some() {
-            return Ok(());
-        }
-        let path: String = env
-            .get_string(&path)
-            .map_err(|_| invalid("Invalid storage path"))?
-            .into();
-        let instance = Bridge::open(path.into())?;
-        BRIDGE
-            .set(instance)
-            .map_err(|_| invalid("Already initialized"))
-    });
-    if let Err(error) = result {
-        exception(&mut env, error);
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_dispatch(
-    mut env: JNIEnv,
-    _: JClass,
-    operation: JString,
-    args: JString,
-) -> jstring {
-    let result = guarded(|| {
-        let operation: String = env
-            .get_string(&operation)
-            .map_err(|_| invalid("Invalid operation"))?
-            .into();
-        let args: String = env
-            .get_string(&args)
-            .map_err(|_| invalid("Invalid arguments"))?
-            .into();
-        let value = bridge()?.call(
-            &operation,
-            serde_json::from_str(&args).map_err(|_| invalid("Invalid JSON"))?,
-        )?;
-        Ok(value.to_string())
-    });
-    match result {
-        Ok(value) => match env.new_string(value) {
-            Ok(value) => value.into_raw(),
-            Err(error) => {
-                exception(&mut env, error);
-                std::ptr::null_mut()
-            }
-        },
-        Err(error) => {
-            exception(&mut env, error);
-            std::ptr::null_mut()
-        }
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_openMedia(
-    mut env: JNIEnv,
-    _: JClass,
-    uri: JString,
-    position: jlong,
-) -> jlong {
-    let result = guarded(|| {
-        if position < 0 {
-            return Err(invalid("Negative stream position"));
-        }
-        let uri: String = env
-            .get_string(&uri)
-            .map_err(|_| invalid("Invalid media URI"))?
-            .into();
-        let b = bridge()?;
-        let mut file = b.runtime.block_on(b.media.open(&uri))?;
-        if position as u64 > file.length {
-            return Err(invalid("Position exceeds file length"));
-        }
-        b.runtime
-            .block_on(file.reader.seek(std::io::SeekFrom::Start(position as u64)))
-            .map_err(|_| invalid("Seek failed"))?;
-        let id = b.next_reader.fetch_add(1, Ordering::Relaxed);
-        b.readers
-            .lock()
-            .map_err(|_| invalid("Reader registry unavailable"))?
-            .insert(id, Arc::new(Mutex::new(file)));
-        Ok(id)
-    });
-    match result {
-        Ok(id) => id,
-        Err(error) => {
-            exception(&mut env, error);
-            0
-        }
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_mediaLength(
-    mut env: JNIEnv,
-    _: JClass,
-    id: jlong,
-) -> jlong {
-    let result = guarded(|| {
-        let b = bridge()?;
-        let reader = b
-            .readers
-            .lock()
-            .map_err(|_| invalid("Reader registry unavailable"))?
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| invalid("Reader closed"))?;
-        let file = reader.lock().map_err(|_| invalid("Reader unavailable"))?;
-        Ok(file.length.min(i64::MAX as u64) as i64)
-    });
-    match result {
-        Ok(n) => n,
-        Err(e) => {
-            exception(&mut env, e);
-            -1
-        }
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_readMedia(
-    mut env: JNIEnv,
-    _: JClass,
-    id: jlong,
-    output: JByteArray,
-    offset: jint,
-    length: jint,
-) -> jint {
-    let result = guarded(|| {
-        let size = env
-            .get_array_length(&output)
-            .map_err(|_| invalid("Invalid output buffer"))?;
-        if offset < 0 || length < 0 || offset.checked_add(length).is_none_or(|end| end > size) {
-            return Err(invalid("Invalid read bounds"));
-        }
-        if length == 0 {
-            return Ok(0);
-        }
-        let b = bridge()?;
-        let reader = b
-            .readers
-            .lock()
-            .map_err(|_| invalid("Reader registry unavailable"))?
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| invalid("Reader closed"))?;
-        let mut file = reader.lock().map_err(|_| invalid("Reader unavailable"))?;
-        let mut buffer = vec![0u8; (length as usize).min(256 * 1024)];
-        // Yield periodically to let the Media3 loading thread observe cancellation.
-        // -2 is internal "piece not available yet", never end-of-stream.
-        let n = match b.runtime.block_on(async {
-            tokio::time::timeout(Duration::from_secs(1), file.reader.read(&mut buffer)).await
-        }) {
-            Err(_) => return Ok(-2),
-            Ok(result) => result.map_err(|_| invalid("Torrent read failed"))?,
-        };
-        let bytes: Vec<i8> = buffer[..n].iter().map(|&v| v as i8).collect();
-        env.set_byte_array_region(&output, offset, &bytes)
-            .map_err(|_| invalid("Could not copy media bytes"))?;
-        Ok(if n == 0 { -1 } else { n as i32 })
-    });
-    match result {
-        Ok(n) => n,
-        Err(e) => {
-            exception(&mut env, e);
-            -1
-        }
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_closeMedia(
-    mut env: JNIEnv,
-    _: JClass,
-    id: jlong,
-) {
-    if let Err(e) = guarded(|| {
-        bridge()?
-            .readers
-            .lock()
-            .map_err(|_| invalid("Reader registry unavailable"))?
-            .remove(&id);
-        Ok(())
-    }) {
-        exception(&mut env, e);
     }
 }
 
@@ -587,19 +537,6 @@ mod tests {
             kids["id"]
         );
     }
-}
-
-// reqwest 0.13 uses Android's trust store through rustls-platform-verifier.
-// Its Java classes and application context must be installed before the first HTTPS call.
-#[cfg(target_os = "android")]
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_madari_tv_core_NativeCore_initializeTls<'local>(
-    mut env: jni_platform::EnvUnowned<'local>,
-    _: jni_platform::objects::JClass<'local>,
-    context: jni_platform::objects::JObject<'local>,
-) {
-    env.with_env(|env| rustls_platform_verifier::android::init_with_env(env, context))
-        .resolve::<jni_platform::errors::ThrowRuntimeExAndDefault>();
 }
 
 #[cfg(test)]
