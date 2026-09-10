@@ -38,14 +38,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # The TV web settings UI is embedded into madari-tv with include_str!, so the
-      # crate cannot compile without it. The committed dist is enough here.
-      - name: Assert the embedded web bundle is present
+      # web/dist is a pnpm build output and deliberately not committed, so the previous
+      # assertion that it was present only ever failed here. build.rs writes a placeholder
+      # when it is absent, which is all this job needs: it checks the Rust boundary, and
+      # web.yml owns the real bundle.
+      - name: Note the placeholder bundle
         run: |
-          for asset in index.html app.js style.css; do
-            test -f "crates/madari-tv/web/dist/$asset" \
-              || { echo "::error::crates/madari-tv/web/dist/$asset is missing"; exit 1; }
-          done
+          if [ -f crates/madari-tv/web/dist/index.html ]; then
+            echo "Using the existing web/dist."
+          else
+            echo "web/dist is absent; build.rs will substitute its placeholder for this check."
+          fi
 
       # Compiles madari-tv, madari-native and the UniFFI boundary for the host and
       # runs the profile/media round-trip tests that cross it.

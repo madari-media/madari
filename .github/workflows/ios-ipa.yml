@@ -37,8 +37,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The committed crates/madari-tv/web/dist is what gets embedded; the web UI has
-  # its own workflow that regenerates and diffs it.
+  # The settings UI is embedded with include_str!, and this job only needs the crate to
+  # compile, so build.rs's placeholder is what gets embedded here. web.yml owns the real
+  # bundle.
   MADARI_SKIP_WEB_BUILD: "1"
   # xtool generates the Xcode project this job builds. Pinned so a change upstream
   # cannot alter what a release produces.
@@ -60,14 +61,35 @@ jobs:
         with:
           key: ios-ipa
 
-      # The TV web settings UI is embedded into madari-tv with include_str!, so the
-      # crate cannot compile without it. The committed dist is enough here.
-      - name: Assert the embedded web bundle is present
+      # The settings UI is embedded into madari-tv with include_str!, and build.rs writes
+      # a placeholder when web/dist is absent so a fresh clone still compiles. A
+      # placeholder is fine for a test build and wrong in something a user installs, so
+      # the real bundle is built here.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/madari-tv/web/package.json
+
+      # After action-setup, so its `cache: pnpm` can find the pnpm store.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: crates/madari-tv/web/pnpm-lock.yaml
+
+      - name: Build the embedded web bundle
+        working-directory: crates/madari-tv/web
         run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          # The server embeds these three by fixed path, and build.rs drops a placeholder
+          # that announces itself, so check for both here.
           for asset in index.html app.js style.css; do
-            test -f "crates/madari-tv/web/dist/$asset" \
-              || { echo "::error::crates/madari-tv/web/dist/$asset is missing"; exit 1; }
+            test -f "dist/$asset" || { echo "::error::dist/$asset is missing"; exit 1; }
           done
+          if grep -q "were not built" dist/app.js; then
+            echo "::error::the web bundle is the build.rs placeholder, not a real build"
+            exit 1
+          fi
 
       # ~500MB of XCFrameworks. Cached, but the key includes the script's pinned
       # checksum so a version bump always refetches.
