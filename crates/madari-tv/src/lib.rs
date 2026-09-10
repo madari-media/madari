@@ -1,8 +1,5 @@
 //! Android JNI boundary. Policies and persistence stay in the shared Rust libraries.
 mod web;
-/// Re-exported for the `web_openapi` example used to generate `web/openapi.json`.
-#[cfg(feature = "openapi")]
-pub use web::openapi_document;
 use jni::{
     JNIEnv,
     objects::{JByteArray, JClass, JString},
@@ -29,6 +26,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt},
     runtime::Runtime,
 };
+/// Re-exported for the `web_openapi` example used to generate `web/openapi.json`.
+#[cfg(feature = "openapi")]
+pub use web::openapi_document;
 
 struct Media(Arc<InternalMedia>);
 #[async_trait::async_trait]
@@ -178,7 +178,10 @@ impl Bridge {
         // Network work must never hold the UI/session mutex. ProfileStorage checks
         // the cloned session token when each operation accesses persisted state.
         let (profiles, active_session) = {
-            let state = self.state.lock().map_err(|_| invalid("Native state unavailable"))?;
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| invalid("Native state unavailable"))?;
             (state.profiles.clone(), state.session.clone())
         };
         self.runtime.block_on(async {
@@ -505,23 +508,49 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let b = Bridge::open(dir.path().into()).unwrap();
         let choices = b.call("profiles", json!({})).unwrap();
-        assert!(choices["avatars"].as_array().unwrap().iter().any(|a| a["id"] == "Fox.webp"));
-        let profile = b.call("create_profile", json!({"name":"TV","avatar":"Fox.webp"})).unwrap();
+        assert!(
+            choices["avatars"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| a["id"] == "Fox.webp")
+        );
+        let profile = b
+            .call("create_profile", json!({"name":"TV","avatar":"Fox.webp"}))
+            .unwrap();
         assert_eq!(profile["avatar"], "Fox.webp");
         b.call("unlock", json!({"id":profile["id"]})).unwrap();
-        assert!(b.call("update_profile", json!({"name":"TV","avatar":"Duck.webp"})).is_err());
+        assert!(
+            b.call("update_profile", json!({"name":"TV","avatar":"Duck.webp"}))
+                .is_err()
+        );
         b.call("authorize", json!({})).unwrap();
         let renamed = b.call("update_profile", json!({"name":"Renamed"})).unwrap();
         assert_eq!(renamed["avatar"], "Fox.webp");
-        assert!(b.call("update_profile", json!({"name":"Wrong","avatar":123})).is_err());
-        let changed = b.call("update_profile", json!({"name":"Renamed","avatar":"Black Cat.webp"})).unwrap();
+        assert!(
+            b.call("update_profile", json!({"name":"Wrong","avatar":123}))
+                .is_err()
+        );
+        let changed = b
+            .call(
+                "update_profile",
+                json!({"name":"Renamed","avatar":"Black Cat.webp"}),
+            )
+            .unwrap();
         assert_eq!(changed["avatar"], "Black Cat.webp");
         drop(b);
         let b = Bridge::open(dir.path().into()).unwrap();
-        assert_eq!(b.call("profiles", json!({})).unwrap()["profiles"][0]["avatar"], "Black Cat.webp");
+        assert_eq!(
+            b.call("profiles", json!({})).unwrap()["profiles"][0]["avatar"],
+            "Black Cat.webp"
+        );
         b.call("unlock", json!({"id":profile["id"]})).unwrap();
         b.call("authorize", json!({})).unwrap();
-        assert!(b.call("update_profile", json!({"name":"TV","avatar":""})).unwrap()["avatar"].is_null());
+        assert!(
+            b.call("update_profile", json!({"name":"TV","avatar":""}))
+                .unwrap()["avatar"]
+                .is_null()
+        );
     }
 
     #[test]

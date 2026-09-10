@@ -1,7 +1,7 @@
 //! Linux profile sessions, PIN verification and transactional shared-addon storage.
 //! Each profile gets a Core storage view; configured installations remain linked.
-mod trakt;
 pub mod avatars;
+mod trakt;
 use crate::{NativeHttp, storage_error};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use async_trait::async_trait;
@@ -259,7 +259,8 @@ impl Profiles {
         kids: bool,
         pin: String,
     ) -> Result<Profile> {
-        self.create_with_avatar(session, profile_name, kids, pin, None).await
+        self.create_with_avatar(session, profile_name, kids, pin, None)
+            .await
     }
 
     pub async fn create_with_avatar(
@@ -428,7 +429,8 @@ impl Profiles {
         profile_name: String,
         new_pin: String,
     ) -> Result<Profile> {
-        self.update_fields(session, profile_name, new_pin, None).await
+        self.update_fields(session, profile_name, new_pin, None)
+            .await
     }
 
     /// Explicitly set an image, or return to initials with None. Legacy update keeps it.
@@ -439,7 +441,8 @@ impl Profiles {
         new_pin: String,
         avatar: Option<String>,
     ) -> Result<Profile> {
-        self.update_fields(session, profile_name, new_pin, Some(avatar)).await
+        self.update_fields(session, profile_name, new_pin, Some(avatar))
+            .await
     }
 
     async fn update_fields(
@@ -456,19 +459,28 @@ impl Profiles {
                 Some(value) => avatars::validate(value)?,
                 None => p.avatar,
             };
-            if p.kids && !new_pin.is_empty() { return Err(invalid("kids profiles use their guardian's PIN")); }
-            let hash = if new_pin.is_empty() { None } else { Some(hash_pin(&new_pin)?) };
+            if p.kids && !new_pin.is_empty() {
+                return Err(invalid("kids profiles use their guardian's PIN"));
+            }
+            let hash = if new_pin.is_empty() {
+                None
+            } else {
+                Some(hash_pin(&new_pin)?)
+            };
             let tx = db.connection.transaction().map_err(storage_error)?;
             tx.execute(
                 "UPDATE profiles SET name=?1,avatar=?2,pin_hash=COALESCE(?3,pin_hash),
                  failed_attempts=CASE WHEN ?3 IS NULL THEN failed_attempts ELSE 0 END,
                  locked_until=CASE WHEN ?3 IS NULL THEN locked_until ELSE 0 END WHERE id=?4",
                 params![name, avatar, hash, p.id],
-            ).map_err(storage_error)?;
-            tx.execute("UPDATE profile_meta SET revision=revision+1 WHERE id=1", []).map_err(storage_error)?;
+            )
+            .map_err(storage_error)?;
+            tx.execute("UPDATE profile_meta SET revision=revision+1 WHERE id=1", [])
+                .map_err(storage_error)?;
             tx.commit().map_err(storage_error)?;
             profile(&db.connection, &p.id)
-        }).await
+        })
+        .await
     }
 
     pub async fn share(
@@ -633,21 +645,83 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("profiles.sqlite");
         let p = Profiles::open(path.clone()).await.unwrap();
-        assert!(p.create_with_avatar(None, "Bad".into(), false, "".into(), Some("../Fox.webp".into())).await.is_err());
+        assert!(
+            p.create_with_avatar(
+                None,
+                "Bad".into(),
+                false,
+                "".into(),
+                Some("../Fox.webp".into())
+            )
+            .await
+            .is_err()
+        );
         assert!(p.list().await.unwrap().is_empty());
-        let adult = p.create_with_avatar(None, "Parent".into(), false, "1234".into(), Some("Fox.webp".into())).await.unwrap();
+        let adult = p
+            .create_with_avatar(
+                None,
+                "Parent".into(),
+                false,
+                "1234".into(),
+                Some("Fox.webp".into()),
+            )
+            .await
+            .unwrap();
         let session = p.unlock(adult.id.clone(), "1234".into()).await.unwrap();
-        assert!(p.update_with_avatar(session.clone(), "Changed".into(), "".into(), None).await.is_err());
-        p.authorize_settings(session.clone(), "1234".into()).await.unwrap();
-        assert!(p.update_with_avatar(session.clone(), "Wrong".into(), "5678".into(), Some("unknown.webp".into())).await.is_err());
-        assert!(p.update_with_avatar(session.clone(), "Wrong".into(), "bad".into(), Some("Duck.webp".into())).await.is_err());
+        assert!(
+            p.update_with_avatar(session.clone(), "Changed".into(), "".into(), None)
+                .await
+                .is_err()
+        );
+        p.authorize_settings(session.clone(), "1234".into())
+            .await
+            .unwrap();
+        assert!(
+            p.update_with_avatar(
+                session.clone(),
+                "Wrong".into(),
+                "5678".into(),
+                Some("unknown.webp".into())
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            p.update_with_avatar(
+                session.clone(),
+                "Wrong".into(),
+                "bad".into(),
+                Some("Duck.webp".into())
+            )
+            .await
+            .is_err()
+        );
         let current = p.list().await.unwrap().remove(0);
         assert_eq!(current.name, "Parent");
         assert_eq!(current.avatar.as_deref(), Some("Fox.webp"));
-        let current = p.update(session.clone(), "Renamed".into(), "".into()).await.unwrap();
+        let current = p
+            .update(session.clone(), "Renamed".into(), "".into())
+            .await
+            .unwrap();
         assert_eq!(current.avatar.as_deref(), Some("Fox.webp"));
-        let kid = p.create_with_avatar(Some(session.clone()), "Kid".into(), true, "".into(), Some("Robot.webp".into())).await.unwrap();
-        p.update_with_avatar(session.clone(), "Renamed".into(), "".into(), Some("Black Cat.webp".into())).await.unwrap();
+        let kid = p
+            .create_with_avatar(
+                Some(session.clone()),
+                "Kid".into(),
+                true,
+                "".into(),
+                Some("Robot.webp".into()),
+            )
+            .await
+            .unwrap();
+        p.update_with_avatar(
+            session.clone(),
+            "Renamed".into(),
+            "".into(),
+            Some("Black Cat.webp".into()),
+        )
+        .await
+        .unwrap();
         p.leave(session, "".into()).await.unwrap();
         drop(p);
         let p = Profiles::open(path).await.unwrap();
@@ -656,12 +730,32 @@ mod tests {
         assert_eq!(profiles[1].avatar.as_deref(), Some("Robot.webp"));
         assert_eq!(profiles[1].guardian_id.as_deref(), Some(adult.id.as_str()));
         let session = p.unlock(adult.id, "1234".into()).await.unwrap();
-        p.authorize_settings(session.clone(), "1234".into()).await.unwrap();
-        assert!(p.update_with_avatar(session, "Renamed".into(), "".into(), None).await.unwrap().avatar.is_none());
+        p.authorize_settings(session.clone(), "1234".into())
+            .await
+            .unwrap();
+        assert!(
+            p.update_with_avatar(session, "Renamed".into(), "".into(), None)
+                .await
+                .unwrap()
+                .avatar
+                .is_none()
+        );
         let child = p.unlock(kid.id, "".into()).await.unwrap();
-        assert!(p.update_with_avatar(child.clone(), "Kid".into(), "".into(), None).await.is_err());
-        p.authorize_settings(child.clone(), "1234".into()).await.unwrap();
-        assert!(p.update_with_avatar(child, "Kid".into(), "".into(), None).await.unwrap().avatar.is_none());
+        assert!(
+            p.update_with_avatar(child.clone(), "Kid".into(), "".into(), None)
+                .await
+                .is_err()
+        );
+        p.authorize_settings(child.clone(), "1234".into())
+            .await
+            .unwrap();
+        assert!(
+            p.update_with_avatar(child, "Kid".into(), "".into(), None)
+                .await
+                .unwrap()
+                .avatar
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -672,9 +766,14 @@ mod tests {
         conn.execute_batch("CREATE TABLE profiles(id TEXT PRIMARY KEY,name TEXT NOT NULL,kids INTEGER NOT NULL,pin_hash TEXT,guardian_id TEXT REFERENCES profiles(id),failed_attempts INTEGER NOT NULL DEFAULT 0,locked_until INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE profile_state(profile_id TEXT PRIMARY KEY REFERENCES profiles(id),data TEXT NOT NULL);
             PRAGMA user_version=1;").unwrap();
-        conn.execute("INSERT INTO profiles(id,name,kids,pin_hash) VALUES('legacy','Existing',0,?1)", [hash_pin("1234").unwrap()]).unwrap();
+        conn.execute(
+            "INSERT INTO profiles(id,name,kids,pin_hash) VALUES('legacy','Existing',0,?1)",
+            [hash_pin("1234").unwrap()],
+        )
+        .unwrap();
         let snapshot = serde_json::to_string(&Snapshot::default()).unwrap();
-        conn.execute("INSERT INTO profile_state VALUES('legacy',?1)", [&snapshot]).unwrap();
+        conn.execute("INSERT INTO profile_state VALUES('legacy',?1)", [&snapshot])
+            .unwrap();
         drop(conn);
         let p = Profiles::open(path.clone()).await.unwrap();
         let profiles = p.list().await.unwrap();
@@ -685,9 +784,19 @@ mod tests {
         let session = p.unlock("legacy".into(), "1234".into()).await.unwrap();
         assert_eq!(p.core(session).snapshot().await.unwrap().revision, 0);
         let conn = Connection::open(path).unwrap();
-        let stored: String = conn.query_row("SELECT data FROM profile_state WHERE profile_id='legacy'", [], |r| r.get(0)).unwrap();
+        let stored: String = conn
+            .query_row(
+                "SELECT data FROM profile_state WHERE profile_id='legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(stored, snapshot);
-        assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).unwrap(), 2);
+        assert_eq!(
+            conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
     }
 
     fn addon() -> Installation {

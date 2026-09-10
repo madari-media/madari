@@ -85,7 +85,11 @@ impl Ui {
             let pin = pin.text().to_string();
             let avatar = avatar.borrow().clone();
             ui.run(
-                async move { profiles.update_with_avatar(session, name, pin, avatar).await },
+                async move {
+                    profiles
+                        .update_with_avatar(session, name, pin, avatar)
+                        .await
+                },
                 |ui, p| {
                     ui.session.borrow_mut().as_mut().unwrap().profile = p;
                     ui.refresh();

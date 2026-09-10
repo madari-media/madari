@@ -96,10 +96,18 @@ fn preparation_error(stage: &str, error: anyhow::Error) -> Error {
     #[cfg(target_os = "android")]
     {
         #[link(name = "log")]
-        unsafe extern "C" { fn __android_log_write(priority: i32, tag: *const std::ffi::c_char, text: *const std::ffi::c_char) -> i32; }
+        unsafe extern "C" {
+            fn __android_log_write(
+                priority: i32,
+                tag: *const std::ffi::c_char,
+                text: *const std::ffi::c_char,
+            ) -> i32;
+        }
         // Local device diagnostics only; never return private tracker URLs in the UI.
         if let Ok(message) = std::ffi::CString::new(format!("{stage}: {detail}")) {
-            unsafe { __android_log_write(6, c"MadariTorrent".as_ptr(), message.as_ptr()); }
+            unsafe {
+                __android_log_write(6, c"MadariTorrent".as_ptr(), message.as_ptr());
+            }
         }
     }
     let reason = if detail.contains("no known way to resolve peers") {
@@ -194,12 +202,20 @@ impl TorrentEngine for RqbitEngine {
                 let other = torrent_id(&torrent.info_hash)?;
                 let handle = self.api.mgr_handle(other).map_err(media_error)?;
                 if handle.live().is_some() {
-                    self.api.api_torrent_action_pause(other).await.map_err(media_error)?;
+                    self.api
+                        .api_torrent_action_pause(other)
+                        .await
+                        .map_err(media_error)?;
                 }
             }
         }
-        self.api.api_torrent_action_update_only_files(selected, &std::collections::HashSet::from([file]))
-            .await.map_err(media_error)?;
+        self.api
+            .api_torrent_action_update_only_files(
+                selected,
+                &std::collections::HashSet::from([file]),
+            )
+            .await
+            .map_err(media_error)?;
         self.keep_file(id, file).await
     }
 
@@ -410,7 +426,12 @@ impl TorrentEngine for RqbitEngine {
         let handle = self.api.mgr_handle(torrent_id(id)?).map_err(media_error)?;
         tokio::time::timeout(Duration::from_secs(60), handle.wait_until_initialized())
             .await
-            .map_err(|_| Error::new(ErrorCode::Timeout, "Torrent storage initialization timed out"))?
+            .map_err(|_| {
+                Error::new(
+                    ErrorCode::Timeout,
+                    "Torrent storage initialization timed out",
+                )
+            })?
             .map_err(|e| preparation_error("Opening torrent storage", e))?;
         let reader = self
             .api
@@ -696,19 +717,46 @@ mod tests {
         let torrent = engine.list().unwrap().remove(0);
         engine.keep_file(&torrent.id, 0).await.unwrap();
         let other_path = downloads.join("other.bin");
-        tokio::fs::write(&other_path, vec![7u8; 32768]).await.unwrap();
-        let other = create_torrent(&other_path, CreateTorrentOptions {
-            name: None, trackers: vec![], piece_length: Some(16384),
-        }, &BlockingSpawner::new(2)).await.unwrap();
-        let other_handle = engine.api.session().add_torrent(
-            AddTorrent::from_bytes(other.as_bytes().unwrap()),
-            Some(AddTorrentOptions { overwrite: true, ..Default::default() })
-        ).await.unwrap().into_handle().unwrap();
+        tokio::fs::write(&other_path, vec![7u8; 32768])
+            .await
+            .unwrap();
+        let other = create_torrent(
+            &other_path,
+            CreateTorrentOptions {
+                name: None,
+                trackers: vec![],
+                piece_length: Some(16384),
+            },
+            &BlockingSpawner::new(2),
+        )
+        .await
+        .unwrap();
+        let other_handle = engine
+            .api
+            .session()
+            .add_torrent(
+                AddTorrent::from_bytes(other.as_bytes().unwrap()),
+                Some(AddTorrentOptions {
+                    overwrite: true,
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap()
+            .into_handle()
+            .unwrap();
         other_handle.wait_until_initialized().await.unwrap();
         engine.prioritize_playback(&torrent.id, 0).await.unwrap();
-        assert!(other_handle.is_paused(), "TV playback pauses competing torrents");
+        assert!(
+            other_handle.is_paused(),
+            "TV playback pauses competing torrents"
+        );
         assert_eq!(handle.only_files(), Some(vec![0]));
-        engine.api.api_torrent_action_forget(torrent_id(&other_handle.info_hash().as_string()).unwrap()).await.unwrap();
+        engine
+            .api
+            .api_torrent_action_forget(torrent_id(&other_handle.info_hash().as_string()).unwrap())
+            .await
+            .unwrap();
         let reader = engine.open(&torrent.id, 0).await.unwrap();
         drop(reader);
         let managed = engine.managed();
@@ -731,11 +779,19 @@ mod tests {
         let engine = RqbitEngine::embedded(dir.path()).await.unwrap();
         assert!(engine.api.session().get_dht().is_some());
         // An unknown hash should wait for peers, not fail immediately for lack of discovery.
-        let result = tokio::time::timeout(std::time::Duration::from_millis(250),
-            engine.add(TorrentInput::Magnet(format!("magnet:?xt=urn:btih:{}", "a".repeat(40))))
-        ).await;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            engine.add(TorrentInput::Magnet(format!(
+                "magnet:?xt=urn:btih:{}",
+                "a".repeat(40)
+            ))),
+        )
+        .await;
         engine.shutdown().await;
-        assert!(result.is_err(), "trackerless magnets must enter peer discovery");
+        assert!(
+            result.is_err(),
+            "trackerless magnets must enter peer discovery"
+        );
     }
 
     #[test]

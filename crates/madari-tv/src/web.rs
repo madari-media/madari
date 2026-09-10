@@ -2,7 +2,9 @@
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Path, Request, State, ws::Message, ws::WebSocket, ws::WebSocketUpgrade},
+    extract::{
+        DefaultBodyLimit, Path, Request, State, ws::Message, ws::WebSocket, ws::WebSocketUpgrade,
+    },
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -89,7 +91,12 @@ fn secret_bytes(path: &std::path::Path) -> Vec<u8> {
         return bytes;
     }
     // Two v4 UUIDs give 256 bits of entropy, the minimum key size for HS256.
-    let secret = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()).into_bytes();
+    let secret = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+    .into_bytes();
     let _ = std::fs::write(&file, &secret);
     secret
 }
@@ -417,10 +424,7 @@ pub async fn start(
         .route("/api/preferences", put(set_preferences))
         .route("/api/addons", post(install_addon))
         .route("/api/addons/order", put(reorder_addons))
-        .route(
-            "/api/addons/{id}/configuration",
-            put(configure_addon),
-        )
+        .route("/api/addons/{id}/configuration", put(configure_addon))
         .route("/api/addons/{id}/enabled", put(set_addon_enabled))
         .route("/api/addons/{id}/share", post(share_addon))
         .route("/api/addons/{id}", delete(remove_addon));
@@ -457,7 +461,10 @@ async fn index_html() -> Response {
 }
 async fn app_js() -> Response {
     (
-        [(header::CONTENT_TYPE, "application/javascript; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
         include_str!("../web/dist/app.js"),
     )
         .into_response()
@@ -472,7 +479,10 @@ async fn style_css() -> Response {
 /// Client-side routes (React Router) fall through to the single-page app.
 async fn spa_fallback(request: Request) -> Response {
     let path = request.uri().path();
-    let looks_like_file = path.rsplit('/').next().is_some_and(|name| name.contains('.'));
+    let looks_like_file = path
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.contains('.'));
     if path.starts_with("/api/") || looks_like_file || request.method() != axum::http::Method::GET {
         return failure(StatusCode::NOT_FOUND, "Unknown endpoint");
     }
@@ -484,7 +494,13 @@ async fn openapi_json() -> Response {
 }
 
 fn failure(status: StatusCode, message: &str) -> Response {
-    (status, Json(WebError { error: message.into() })).into_response()
+    (
+        status,
+        Json(WebError {
+            error: message.into(),
+        }),
+    )
+        .into_response()
 }
 fn native_error(e: madari_model::Error) -> Response {
     let status = match e.code {
@@ -527,21 +543,20 @@ async fn guard(State(server): State<Arc<Server>>, request: Request, next: Next) 
             "Open the IP address shown on your TV.",
         );
     }
-    if let Some(origin) = request.headers().get(header::ORIGIN) {
-        if origin.to_str().ok() != Some(format!("http://{host}").as_str()) {
-            return failure(
-                StatusCode::FORBIDDEN,
-                "Cross-site requests are not allowed.",
-            );
-        }
-    }
-    if request.method() != axum::http::Method::GET
-        && !request
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|h| h.to_str().ok())
-            .is_some_and(|h| h.split(';').next() == Some("application/json"))
+    if let Some(origin) = request.headers().get(header::ORIGIN)
+        && origin.to_str().ok() != Some(format!("http://{host}").as_str())
     {
+        return failure(
+            StatusCode::FORBIDDEN,
+            "Cross-site requests are not allowed.",
+        );
+    }
+    let json_request = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|h| h.split(';').next() == Some("application/json"));
+    if request.method() != axum::http::Method::GET && !json_request {
         return failure(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Use JSON requests.");
     }
     let mut response = next.run(request).await;
@@ -599,7 +614,12 @@ async fn pair(State(server): State<Arc<Server>>, Json(input): Json<PairRequest>)
     let sub = uuid::Uuid::new_v4().simple().to_string();
     let token = match issue(&server, &sub) {
         Some(token) => token,
-        None => return failure(StatusCode::INTERNAL_SERVER_ERROR, "Could not start a session."),
+        None => {
+            return failure(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not start a session.",
+            );
+        }
     };
     auth.browsers.insert(
         sub,
@@ -632,7 +652,10 @@ async fn refresh(State(server): State<Arc<Server>>, headers: HeaderMap) -> Respo
             expires_in: TOKEN_LIFETIME.as_secs(),
         })
         .into_response(),
-        None => failure(StatusCode::INTERNAL_SERVER_ERROR, "Could not renew the session."),
+        None => failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not renew the session.",
+        ),
     }
 }
 fn token(headers: &HeaderMap) -> Option<&str> {
@@ -642,13 +665,23 @@ fn token(headers: &HeaderMap) -> Option<&str> {
         .ok()?
         .strip_prefix("Bearer ")
 }
+/// The error arm is the response the caller returns verbatim, so boxing it would
+/// only add an allocation on every rejected request.
+#[allow(clippy::result_large_err)]
 fn claims(server: &Server, headers: &HeaderMap) -> Result<Claims, Response> {
     let raw = token(headers)
         .ok_or_else(|| failure(StatusCode::UNAUTHORIZED, "Pair with the TV to continue."))?;
-    let claims = verify(server, raw)
-        .ok_or_else(|| failure(StatusCode::UNAUTHORIZED, "Pairing expired. Enter the TV code again."))?;
+    let claims = verify(server, raw).ok_or_else(|| {
+        failure(
+            StatusCode::UNAUTHORIZED,
+            "Pairing expired. Enter the TV code again.",
+        )
+    })?;
     let revoked = server.revoked.lock().expect("revoked lock");
-    if revoked.get(&claims.sub).is_some_and(|exp| *exp > now_secs()) {
+    if revoked
+        .get(&claims.sub)
+        .is_some_and(|exp| *exp > now_secs())
+    {
         return Err(failure(
             StatusCode::UNAUTHORIZED,
             "This browser was disconnected on the TV.",
@@ -708,6 +741,8 @@ async fn respond(browser: &Browser, server: &Server, bump: bool) -> Response {
     }
 }
 /// The selected profile owns addon and playback state; without one the route is forbidden.
+/// `Response` is returned as-is by every caller; see `claims`.
+#[allow(clippy::result_large_err)]
 fn core_for(browser: &Browser) -> Result<Arc<madari_core::Core>, Response> {
     let session = browser
         .selected
@@ -780,14 +815,19 @@ fn authorize(server: &Server, text: &str) -> Option<Claims> {
     }
     let claims = verify(server, message.get("token")?.as_str()?)?;
     let revoked = server.revoked.lock().ok()?;
-    if revoked.get(&claims.sub).is_some_and(|exp| *exp > now_secs()) {
+    if revoked
+        .get(&claims.sub)
+        .is_some_and(|exp| *exp > now_secs())
+    {
         return None;
     }
     Some(claims)
 }
 async fn send_state(socket: &mut WebSocket, state: &Value) -> Result<(), axum::Error> {
     socket
-        .send(Message::Text(json!({"type":"player","state":state}).to_string().into()))
+        .send(Message::Text(
+            json!({"type":"player","state":state}).to_string().into(),
+        ))
         .await
 }
 fn queue(server: &Server, item: Value) {
@@ -803,11 +843,17 @@ fn accept(server: &Server, text: &str) -> Value {
     let Ok(message) = serde_json::from_str::<Value>(text) else {
         return json!({"type":"error","error":"Malformed message."});
     };
-    let kind = message.get("type").and_then(Value::as_str).unwrap_or_default();
+    let kind = message
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     match kind {
         "ping" => json!({"type":"pong"}),
         "key" => {
-            let command = message.get("command").and_then(Value::as_str).unwrap_or_default();
+            let command = message
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if !REMOTE_COMMANDS.contains(&command) {
                 return json!({"type":"error","error":"Unknown remote command."});
             }
@@ -815,7 +861,10 @@ fn accept(server: &Server, text: &str) -> Value {
             json!({"type":"queued"})
         }
         "player" => {
-            let action = message.get("action").and_then(Value::as_str).unwrap_or_default();
+            let action = message
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if !PLAYER_ACTIONS.contains(&action) {
                 return json!({"type":"error","error":"Unknown player action."});
             }
@@ -889,7 +938,9 @@ async fn websocket(mut socket: WebSocket, server: Arc<Server>) {
     responses((status = 200, body = Overview), (status = 401, body = WebError))
 ))]
 async fn overview(State(server): State<Arc<Server>>, headers: HeaderMap) -> Response {
-    session!(server, headers, browser, { respond(&browser, &server, false).await })
+    session!(server, headers, browser, {
+        respond(&browser, &server, false).await
+    })
 }
 
 #[cfg_attr(feature = "openapi", utoipa::path(
@@ -1081,7 +1132,10 @@ async fn configure_addon(
             Ok(core) => core,
             Err(response) => return response,
         };
-        match core.configure_addon(&id, &input.url, input.allow_local).await {
+        match core
+            .configure_addon(&id, &input.url, input.allow_local)
+            .await
+        {
             Ok(_) => respond(&browser, &server, true).await,
             Err(error) => native_error(error),
         }
@@ -1426,7 +1480,10 @@ mod tests {
         .unwrap();
         let state = &server.server;
         assert_eq!(accept(state, "not json")["type"], json!("error"));
-        assert_eq!(accept(state, "{\"type\":\"key\",\"command\":\"nope\"}")["type"], json!("error"));
+        assert_eq!(
+            accept(state, "{\"type\":\"key\",\"command\":\"nope\"}")["type"],
+            json!("error")
+        );
         assert_eq!(
             accept(state, "{\"type\":\"player\",\"action\":\"rm -rf\"}")["type"],
             json!("error")

@@ -25,7 +25,10 @@ const PLACEHOLDER_HTML: &str = r#"<!doctype html>
 
 const PLACEHOLDERS: [(&str, &str); 3] = [
     ("index.html", PLACEHOLDER_HTML),
-    ("app.js", "console.warn('Madari web settings were not built; rebuild the app.');\n"),
+    (
+        "app.js",
+        "console.warn('Madari web settings were not built; rebuild the app.');\n",
+    ),
     ("style.css", ""),
 ];
 
