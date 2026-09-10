@@ -41,14 +41,15 @@ env:
   # compile, so build.rs's placeholder is what gets embedded here. web.yml owns the real
   # bundle.
   MADARI_SKIP_WEB_BUILD: "1"
-  # xtool generates the Xcode project this job builds. Pinned so a change upstream
-  # cannot alter what a release produces.
-  XTOOL_REF: 0f42dafce6d7bdcfbe2da9ad05c4dc8591d7dba9
+  # The released macOS binary, not a source checkout. xtool's own package declares
+  # swift-tools-version 6.2, so building it from source tied this job to a toolchain
+  # newer than the runner's default and cost several minutes on every run.
+  XTOOL_VERSION: 1.19.0
 
 jobs:
   ipa:
     name: Unsigned ipa
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -104,24 +105,25 @@ jobs:
         if: steps.mpv-cache.outputs.cache-hit != 'true'
         run: bash scripts/fetch-ios-mpv.sh
 
-      - name: Cache xtool
-        id: xtool-cache
-        uses: actions/cache@v4
-        with:
-          path: .xtool
-          key: xtool-${{ env.XTOOL_REF }}-${{ runner.os }}
-
-      # macOS ships Swift and the iOS SDK, so no Darwin Swift SDK download is needed
-      # here — that is the one thing this job does not share with a Linux build.
       - name: Install xtool
-        if: steps.xtool-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --filter=blob:none https://github.com/xtool-org/xtool .xtool
-          git -C .xtool checkout "$XTOOL_REF"
-          swift build -c release --package-path .xtool
+          curl -fsSL -o xtool.zip \
+            "https://github.com/xtool-org/xtool/releases/download/v${XTOOL_VERSION}/xtool.app.zip"
+          unzip -q xtool.zip
+          BIN=$(find . -type f -path '*MacOS/xtool' | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::no xtool executable in the release archive"
+            find . -maxdepth 4 | head -30
+            exit 1
+          fi
+          chmod +x "$BIN"
+          echo "$(cd "$(dirname "$BIN")" && pwd)" >> "$GITHUB_PATH"
 
-      - name: Put xtool on PATH
-        run: echo "$PWD/.xtool/.build/release" >> "$GITHUB_PATH"
+      - name: Report the toolchain
+        run: |
+          xtool --version
+          swift --version
+          xcodebuild -version
 
       # Cross-compiles madari-ios (and madari-tv/madari-native it depends on) to
       # aarch64-apple-ios and refreshes the Swift bindings the app compiles against.
