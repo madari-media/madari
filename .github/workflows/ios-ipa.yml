@@ -231,13 +231,20 @@ jobs:
       - name: Package the ipa
         working-directory: apps/ios
         run: |
-          # -maxdepth goes straight after the path: BSD find rejects it in any other
-          # position, and it returned nothing here instead of failing loudly.
-          APP=$(find build -maxdepth 6 -type d -name '*.app' | head -1)
+          # xtool's generated project does not put the bundle under DerivedData: it writes
+          # it to xtool/, the same place `xtool dev build` does locally. Look there first,
+          # then anywhere plausible, rather than assuming xcodebuild's usual layout.
+          APP=""
+          for candidate in xtool/Madari.app build/Build/Products/Release-iphoneos/Madari.app; do
+            if [ -d "$candidate" ]; then APP="$candidate"; break; fi
+          done
+          if [ -z "$APP" ]; then
+            APP=$(find . -maxdepth 5 -type d -name '*.app' -not -path './.build/*' | head -1)
+          fi
           if [ -z "$APP" ]; then
             echo "::error::no .app was produced"
-            ls -la build/Build/Products 2>&1 || true
-            find build -maxdepth 6 -name '*.app' 2>&1 | head -10
+            ls -la xtool 2>&1 | head -20 || true
+            ls -la build/Build/Products/Release-iphoneos 2>&1 | head -20 || true
             exit 1
           fi
           echo "APP=$APP" >> "$GITHUB_ENV"
