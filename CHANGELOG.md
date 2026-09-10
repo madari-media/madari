@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/madari-media/madari/compare/v0.2.0...v0.3.0) (2026-09-10)
+
+
+### Features
+
+* **release:** ship Linux .deb, .rpm and .AppImage for amd64 and arm64 ([7ba2980](https://github.com/madari-media/madari/commit/7ba29801ff87d80cb0d82ac49325f95a5c607f98))
+* **release:** ship Linux .deb, .rpm and .AppImage for amd64 and arm64 ([4c9f7e3](https://github.com/madari-media/madari/commit/4c9f7e3afdc41257d38fddeb421082eb69f3cb7d))
+
 ## [0.2.0](https://github.com/madari-media/madari/compare/v0.1.0...v0.2.0) (2026-09-10)
 
 
