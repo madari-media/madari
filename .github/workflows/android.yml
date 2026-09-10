@@ -1,0 +1,83 @@
+name: Android TV
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Must match the NDK the build script expects.
+  NDK_VERSION: 28.2.13676358
+
+jobs:
+  apk:
+    name: performance APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # The native build embeds the web UI, so the script needs Node too.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: crates/madari-tv/web/package-lock.json
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 ndk;${{ env.NDK_VERSION }}"
+          accept-android-sdk-licenses: true
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Builds both ABIs into apps/tv/app/src/main/jniLibs and stages the
+      # rustls-platform-verifier AAR that the JNI TLS layer needs.
+      # ANDROID_HOME is exported by setup-android into the step environment, so
+      # it is expanded by the shell here rather than by the ${{ env }} context.
+      - name: Native libraries and web UI
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}"
+          ./scripts/build-tv-native.sh
+
+      # -x buildNative: the previous step already ran it, and Gradle re-running
+      # it would rebuild the same libraries with less useful logs.
+      - name: Assemble
+        run: ./gradlew :app:assemblePerformance -x buildNative
+        working-directory: apps/tv
+
+      - name: Assert both ABIs are packaged
+        working-directory: apps/tv
+        run: |
+          apk=app/build/outputs/apk/performance/app-performance.apk
+          test -f "$apk" || { echo "::error::$apk was not produced"; exit 1; }
+          for abi in arm64-v8a armeabi-v7a; do
+            unzip -l "$apk" "lib/$abi/libmadari_tv.so" | grep -q "libmadari_tv.so" \
+              || { echo "::error::$abi is missing from the APK"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: madari-tv-performance-apk
+          path: apps/tv/app/build/outputs/apk/performance/app-performance.apk
+          retention-days: 14
