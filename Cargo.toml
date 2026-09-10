@@ -3,6 +3,9 @@ members = ["crates/*", "apps/server", "apps/linux"]
 resolver = "3"
 
 [workspace.package]
+# Not the release version: release-please maintains version.txt, and bumping this
+# would invalidate Cargo.lock and break every `cargo --locked` build until it was
+# regenerated. Every crate here is publish = false, so nothing reads this.
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"

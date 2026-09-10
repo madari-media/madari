@@ -12,6 +12,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to rebuild and attach artifacts to, e.g. v0.2.0. Leave empty to just run release-please.
+        type: string
+        required: false
 
 concurrency:
   group: release
@@ -24,6 +29,9 @@ jobs:
   propose:
     name: release PR
     runs-on: ubuntu-24.04
+    # A dispatch carrying a tag is a rebuild of existing artifacts, so it must not
+    # touch the release PR.
+    if: github.event_name == 'push' || inputs.tag == ''
     permissions:
       contents: write
       pull-requests: write
@@ -53,27 +61,27 @@ jobs:
   build:
     name: APK for the tag
     needs: propose
-    if: needs.propose.outputs.released == 'true'
+    if: always() && (needs.propose.outputs.released == 'true' || inputs.tag != '')
     permissions:
       contents: read
     uses: ./.github/workflows/android.yml
     with:
-      ref: ${{ needs.propose.outputs.tag }}
+      ref: ${{ inputs.tag || needs.propose.outputs.tag }}
 
   linux:
     name: Linux packages for the tag
     needs: propose
-    if: needs.propose.outputs.released == 'true'
+    if: always() && (needs.propose.outputs.released == 'true' || inputs.tag != '')
     permissions:
       contents: read
     uses: ./.github/workflows/package-linux.yml
     with:
-      ref: ${{ needs.propose.outputs.tag }}
+      ref: ${{ inputs.tag || needs.propose.outputs.tag }}
 
   attach:
     name: attach the artifacts
     needs: [propose, build, linux]
-    if: needs.propose.outputs.released == 'true'
+    if: always() && needs.build.result == 'success' && needs.linux.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -96,7 +104,7 @@ jobs:
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.propose.outputs.tag }}
+          TAG: ${{ inputs.tag || needs.propose.outputs.tag }}
           APK_VERSION: ${{ needs.build.outputs.version }}
           LINUX_VERSION: ${{ needs.linux.outputs.version }}
         run: |
@@ -109,8 +117,8 @@ jobs:
             echo "::error::tag $TAG does not match the APK version $APK_VERSION"
             exit 1
           fi
-          # The Linux packages carry the same Cargo version, so a mismatch means
-          # the tag was cut from a tree that disagrees with itself.
+          # The Linux packages take their version from version.txt, so this also
+          # proves release-please's three version files agree with the tag.
           if [ "$LINUX_VERSION" != "$APK_VERSION" ]; then
             echo "::error::linux packages are $LINUX_VERSION but the APK is $APK_VERSION"
             exit 1

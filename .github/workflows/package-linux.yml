@@ -79,7 +79,11 @@ jobs:
       - name: Version
         id: version
         run: |
-          version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          # version.txt is what release-please bumps, so it is the release's
+          # source of truth. Cargo.toml keeps its own unused version because
+          # bumping [workspace.package] would invalidate Cargo.lock and break
+          # every --locked build until it was regenerated.
+          version=$(cat version.txt 2>/dev/null || sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "packaging $version for ${{ matrix.arch }}"
 
@@ -87,16 +91,15 @@ jobs:
       # are for, instead of Debian's amd64/arm64 versus RPM's x86_64/aarch64.
       - name: Debian package
         run: |
-          cargo deb -p madari-linux --no-build
           version='${{ steps.version.outputs.version }}'
+          cargo deb -p madari-linux --no-build --deb-version "${version}-1"
           mkdir -p dist
-          # cargo-deb writes <name>_<version>-1_<arch>.deb
           find target/debian -name '*.deb' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.deb" \;
 
       - name: RPM package
         run: |
-          cargo generate-rpm -p apps/linux
           version='${{ steps.version.outputs.version }}'
+          cargo generate-rpm -p apps/linux -s "version = \"${version}\""
           mkdir -p dist
           find target/generate-rpm -name '*.rpm' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.rpm" \;
 

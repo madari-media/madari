@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-version="${1:-$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)}"
+version="${1:-$(cat version.txt 2>/dev/null || sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)}"
 binary="target/release/madari"
 desktop="apps/linux/assets/io.github.madari.Madari.desktop"
 icons="apps/linux/assets/icons"
