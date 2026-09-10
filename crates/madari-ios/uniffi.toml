@@ -1,0 +1,7 @@
+# The app target imports the generated Swift as the `MadariCore` module, and the
+# sibling C target that vends the raw symbols is `madari_iosFFI`.
+[bindings.swift]
+module_name = "MadariCore"
+ffi_module_name = "madari_iosFFI"
+ffi_module_filename = "madari_iosFFI"
+cdylib_name = "madari_ios"

@@ -56,3 +56,6 @@ debug = 1
 
 [patch.crates-io]
 librqbit = { path = "vendor/librqbit" }
+# Upstream 0.7.0 selects the Linux SO_BINDTODEVICE path on iOS, which socket2 does
+# not expose for Apple targets. See vendor/librqbit-dualstack-sockets/MADARI-PATCH.md.
+librqbit-dualstack-sockets = { path = "vendor/librqbit-dualstack-sockets" }

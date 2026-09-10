@@ -1,0 +1,7 @@
+/.build
+/Packages
+/xtool
+/native
+xcuserdata/
+DerivedData/
+.DS_Store

@@ -1,0 +1,5 @@
+version: 1
+# Must stay unique per project: xtool mints its own certificate and provisioning
+# profile for each bundle ID.
+bundleID: media.madari.ios
+infoPath: Info.plist

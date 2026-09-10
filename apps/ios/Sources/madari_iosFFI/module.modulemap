@@ -1,0 +1,7 @@
+module madari_iosFFI {
+    header "madari_iosFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

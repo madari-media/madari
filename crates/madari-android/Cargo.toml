@@ -1,0 +1,24 @@
+[package]
+name = "madari-android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+# `cdylib` is what the APK loads. It lives here rather than on `madari-tv` so the
+# shared crate stays linkable for iOS: cargo builds every declared crate type of an
+# in-workspace path dependency, and `ld64.lld` cannot produce an iOS dylib.
+# `rlib` keeps `cargo test` and `cargo build --workspace` happy.
+crate-type = ["cdylib", "rlib"]
+# Kept as `madari_tv` so the artifact is still libmadari_tv.so and the Kotlin
+# client's System.loadLibrary("madari_tv") is unchanged.
+name = "madari_tv"
+
+[dependencies]
+madari-model.workspace = true
+madari-tv = { path = "../madari-tv" }
+serde_json.workspace = true
+jni = "0.21.1"
+rustls-platform-verifier = "0.7"
+jni-platform = { package = "jni", version = "0.22.4" }

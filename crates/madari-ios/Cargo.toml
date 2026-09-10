@@ -1,0 +1,33 @@
+[package]
+name = "madari-ios"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+# `staticlib` is what the iOS app links. `cdylib` is deliberately *not* declared:
+# cargo builds every declared crate type, and `ld64.lld` cannot produce an iOS
+# dylib (iOS has none). The host build the bindings generator reads is produced
+# with `cargo rustc --crate-type cdylib` instead — see scripts/build-ios-native.sh.
+crate-type = ["staticlib", "rlib"]
+
+[features]
+# The bindgen CLI pulls in a large dependency tree. It is only needed to
+# regenerate Sources/MadariCore, so it stays out of the shipped build.
+cli = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[dependencies]
+madari-model.workspace = true
+madari-tv = { path = "../madari-tv" }
+serde_json.workspace = true
+thiserror.workspace = true
+uniffi = "0.32"
+
+[dev-dependencies]
+tempfile.workspace = true
