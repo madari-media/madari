@@ -191,42 +191,13 @@ jobs:
           MADARI_IOS_CLANG: ${{ steps.sdk.outputs.clang }}
         run: bash scripts/build-ios-native.sh
 
-      - name: Generate the Xcode project
+      # xtool assembles the bundle itself: its generated Xcode project compiles the Swift
+      # to object files and leaves the .app to xtool's own packer, so `xcodebuild build`
+      # exits successfully having produced Madari.o and no app at all. This is the same
+      # command that builds the app locally.
+      - name: Build the app
         working-directory: apps/ios
-        run: xtool dev generate-xcode-project
-
-      # Discovered rather than hardcoded: xtool owns where it writes this, and the
-      # scheme name follows the package name.
-      - name: Locate the generated project
-        id: project
-        working-directory: apps/ios
-        run: |
-          PROJECT=$(find . -name '*.xcodeproj' -maxdepth 3 -print -quit)
-          test -n "$PROJECT" || { echo "::error::xtool generated no Xcode project"; exit 1; }
-          echo "path=$PROJECT" >> "$GITHUB_OUTPUT"
-          SCHEME=$(xcodebuild -list -json -project "$PROJECT" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-          echo "Building $SCHEME from $PROJECT"
-
-      # An ipa is only useful if every embedded framework made it in, and libmpv is
-      # 18 dynamic frameworks — exactly the kind of thing that goes missing quietly.
-      # Signing is off, which is what makes the result installable only after the
-      # installer re-signs it.
-      - name: Build unsigned
-        working-directory: apps/ios
-        run: |
-          xcodebuild \
-            -project "${{ steps.project.outputs.path }}" \
-            -scheme "${{ steps.project.outputs.scheme }}" \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            build
+        run: xtool dev build
 
       - name: Package the ipa
         working-directory: apps/ios
