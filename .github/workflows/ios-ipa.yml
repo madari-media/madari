@@ -169,9 +169,26 @@ jobs:
           swift build -c release --package-path .xtool
           echo "$PWD/.xtool/.build/release" >> "$GITHUB_PATH"
 
+      # This build is written for Linux, where clang and the iPhoneOS SDK come from
+      # xtool's Darwin bundle. macOS already has both in Xcode, and the script takes them
+      # as overrides, so this points it at those rather than downloading the bundle.
+      - name: Locate the iOS SDK
+        id: sdk
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          CLANG=$(xcrun --find clang)
+          test -d "$SDK" || { echo "::error::xcrun found no iPhoneOS SDK"; exit 1; }
+          echo "path=$SDK" >> "$GITHUB_OUTPUT"
+          echo "clang=$CLANG" >> "$GITHUB_OUTPUT"
+          echo "SDK   $SDK"
+          echo "clang $CLANG"
+
       # Cross-compiles madari-ios (and madari-tv/madari-native it depends on) to
       # aarch64-apple-ios and refreshes the Swift bindings the app compiles against.
       - name: Build the Rust core and bindings
+        env:
+          MADARI_IOS_SDK: ${{ steps.sdk.outputs.path }}
+          MADARI_IOS_CLANG: ${{ steps.sdk.outputs.clang }}
         run: bash scripts/build-ios-native.sh
 
       - name: Generate the Xcode project
