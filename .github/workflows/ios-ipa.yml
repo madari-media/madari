@@ -231,12 +231,22 @@ jobs:
       - name: Package the ipa
         working-directory: apps/ios
         run: |
-          APP=$(find build/Build/Products -name '*.app' -maxdepth 2 -print -quit)
-          test -n "$APP" || { echo "::error::no .app was produced"; exit 1; }
+          # -maxdepth goes straight after the path: BSD find rejects it in any other
+          # position, and it returned nothing here instead of failing loudly.
+          APP=$(find build -maxdepth 6 -type d -name '*.app' | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::no .app was produced"
+            ls -la build/Build/Products 2>&1 || true
+            find build -maxdepth 6 -name '*.app' 2>&1 | head -10
+            exit 1
+          fi
           echo "APP=$APP" >> "$GITHUB_ENV"
+          echo "App: $APP"
 
           # Every libmpv framework must be embedded, or the app builds fine and then
           # cannot decode Matroska on device.
+          echo "Embedded frameworks:"
+          ls "$APP/Frameworks" 2>&1 | head -25 || true
           MISSING=""
           for framework in Ass Avcodec Avfilter Avformat Avutil Dav1d Freetype Fribidi \
                            Harfbuzz Mbedcrypto Mbedtls Mbedx509 Mpv Png16 Swresample \
