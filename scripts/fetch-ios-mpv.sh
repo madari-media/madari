@@ -41,7 +41,19 @@ if [[ ! -f "$cache" ]]; then
 fi
 
 echo "==> Verifying $cache"
-echo "$sha256  $cache" | sha256sum -c - >/dev/null
+# macOS ships shasum rather than sha256sum, and this runs on both: the development
+# machine is Linux, CI builds the same artifact on a macOS runner.
+if command -v sha256sum >/dev/null 2>&1; then
+  echo "$sha256  $cache" | sha256sum -c - >/dev/null
+else
+  actual=$(shasum -a 256 "$cache" | awk '{print $1}')
+  if [[ "$actual" != "$sha256" ]]; then
+    echo "checksum mismatch for $cache" >&2
+    echo "  expected $sha256" >&2
+    echo "  actual   $actual" >&2
+    exit 1
+  fi
+fi
 
 echo "==> Extracting into $dest"
 rm -rf "$dest"
