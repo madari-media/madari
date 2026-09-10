@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# The TV web settings UI is embedded into the native library with include_str!.
+# Build it first so the shipped assets match the OpenAPI client.
+if [[ "${MADARI_SKIP_WEB_BUILD:-}" != "1" ]]; then
+  web="crates/madari-tv/web"
+  if [[ ! -d "$web/node_modules" ]]; then
+    echo "Missing $web/node_modules. Run 'npm install' there, or set MADARI_SKIP_WEB_BUILD=1 to reuse the existing dist." >&2
+    exit 1
+  fi
+  (cd "$web" && npm run build)
+fi
+
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 ndk="${ANDROID_NDK_HOME:-$sdk/ndk/28.2.13676358}"
 toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"

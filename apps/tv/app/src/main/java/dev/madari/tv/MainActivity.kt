@@ -49,6 +49,42 @@ class MainActivity : ComponentActivity() {
     @Suppress("RestrictedApi")
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = if(playerKeyHandler?.invoke(event)==true) true else super.dispatchKeyEvent(event)
     private val viewModel: TvViewModel by viewModels()
+    /**
+     * Plays one key from the web remote exactly as a physical remote would.
+     * Keys go back through [dispatchKeyEvent], so the player, the focus system
+     * and Compose's click handling all see them; volume and back are handled
+     * one level up, where the framework normally handles them.
+     */
+    fun sendRemote(command: String) {
+        val code = when (command) {
+            "up" -> android.view.KeyEvent.KEYCODE_DPAD_UP
+            "down" -> android.view.KeyEvent.KEYCODE_DPAD_DOWN
+            "left" -> android.view.KeyEvent.KEYCODE_DPAD_LEFT
+            "right" -> android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+            "select" -> android.view.KeyEvent.KEYCODE_DPAD_CENTER
+            "play" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY
+            "pause" -> android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
+            "play_pause" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+            "next" -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
+            "previous" -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            "seek_forward" -> android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+            "seek_back" -> android.view.KeyEvent.KEYCODE_MEDIA_REWIND
+            else -> null
+        }
+        when (command) {
+            "back" -> onBackPressedDispatcher.onBackPressed()
+            "volume_up" -> adjustVolume(android.media.AudioManager.ADJUST_RAISE)
+            "volume_down" -> adjustVolume(android.media.AudioManager.ADJUST_LOWER)
+            else -> if (code != null) {
+                dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+                dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+            }
+        }
+    }
+    private fun adjustVolume(direction: Int) {
+        val audio = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, direction, android.media.AudioManager.FLAG_SHOW_UI)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MadariTheme { TvApp(viewModel) } }
@@ -56,6 +92,8 @@ class MainActivity : ComponentActivity() {
 }
 @Composable fun TvApp(vm: TvViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+    LaunchedEffect(vm) { vm.remote.collect { activity.sendRemote(it) } }
     val first = remember { FocusRequester() }
     val savedScreens = rememberSaveableStateHolder()
     val homeLoading = state.loading && state.tab=="Home" && state.detail==null && state.shelves.all { it.titles.isEmpty() }

@@ -35,6 +35,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.madari.tv.MainActivity
@@ -137,8 +138,16 @@ class PlaybackDataSourceFactory(private val fallback: DataSource.Factory) : Data
     var playing by remember { mutableStateOf(true) }
     var duration by remember { mutableLongStateOf(0) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
-    var resize by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var speed by remember { mutableFloatStateOf(1f) }
+    var resize by remember { mutableIntStateOf(vm.playerResizeMode()) }
+    var speed by remember { mutableFloatStateOf(vm.playerSpeed()) }
+    var subtitleSize by remember(playback.uri) { mutableStateOf(vm.playerSubtitleSize()) }
+    // The web remote can change source too, so the list is fetched once per playback.
+    var allSources by remember(playback.uri) { mutableStateOf<List<Source>>(emptyList()) }
+    LaunchedEffect(playback.uri) {
+        try { allSources = vm.playerSources(playback.title, playback.videoId) }
+        catch(e: kotlinx.coroutines.CancellationException) { throw e }
+        catch(_: Exception) { allSources = emptyList() }
+    }
     val rootFocus=remember { FocusRequester() }
     val playFocus=remember { FocusRequester() }
     val seekFocus=remember { FocusRequester() }
@@ -172,6 +181,7 @@ class PlaybackDataSourceFactory(private val fallback: DataSource.Factory) : Data
             setHandleAudioBecomingNoisy(true)
             trackSelectionParameters=trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!playback.preferences.optBoolean("subtitles_enabled",true)).build()
             setMediaItem(item.build(),position); prepare(); playWhenReady=true
+            setPlaybackSpeed(vm.playerSpeed())
         }
     }
     val session=remember(player) { MediaSession.Builder(context,player).setId("madari-${System.nanoTime()}").build() }
@@ -241,11 +251,48 @@ class PlaybackDataSourceFactory(private val fallback: DataSource.Factory) : Data
             player.removeListener(listener); session.release(); player.release()
         }
     }
+    /** The whole player state the web remote renders; sent on every tick. */
+    fun playerState(): JSONObject {
+        val episode=playback.title.videos.firstOrNull { it.text("id")==playback.videoId }
+        val trackList=JSONArray()
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            if(group.type==C.TRACK_TYPE_AUDIO || group.type==C.TRACK_TYPE_TEXT) for(index in 0 until group.length) if(group.isTrackSupported(index)) {
+                val format=group.getTrackFormat(index)
+                trackList.put(obj("id" to groupIndex*10000+index,"kind" to if(group.type==C.TRACK_TYPE_AUDIO) "audio" else "sub",
+                    "label" to format.label.orEmpty(),"language" to format.language.orEmpty(),"codecs" to format.codecs.orEmpty(),
+                    "channels" to format.channelCount,"selected" to group.isTrackSelected(index)))
+            }
+        }
+        // Built as JSONArray explicitly: a Kotlin List nested in a JSONObject
+        // stringifies to a quoted string on Android, not to a JSON array.
+        val sourceList=JSONArray()
+        allSources.forEachIndexed { index, entry ->
+            sourceList.put(obj("id" to index,"label" to entry.raw.text("name").ifEmpty { entry.name },"current" to (entry.raw.toString()==playback.source.raw.toString())))
+        }
+        val episodeList=JSONArray()
+        playback.title.videos.forEachIndexed { index, entry ->
+            episodeList.put(obj("id" to index,"label" to "S${entry.optInt("season")} E${entry.optInt("episode")} · ${entry.text("title")}","current" to (entry.text("id")==playback.videoId)))
+        }
+        return obj("active" to true,"title" to playback.title.name,
+            "episode" to (episode?.let { "Season ${it.optInt("season")} · Episode ${it.optInt("episode")}" } ?: ""),
+            "source" to playback.source.name,
+            // Episode still first, then the title's poster, so the bar shows the art for what is on.
+            "poster" to (episode?.text("thumbnail").orEmpty().ifEmpty { playback.title.poster }),
+            "background" to playback.title.background,
+            "position_ms" to player.currentPosition,"duration_ms" to duration,"buffered_ms" to player.bufferedPosition,
+            "playing" to player.isPlaying,"buffering" to (player.playbackState==Player.STATE_BUFFERING),
+            "seekable" to player.isCurrentMediaItemSeekable,"live" to player.isCurrentMediaItemLive,
+            "ended" to ended,"error" to (error ?: ""),
+            "speed" to speed,"resize" to resize,"subtitle_size" to subtitleSize,
+            "tracks" to trackList,"sources" to sourceList,"episodes" to episodeList,
+            "torrent" to torrentInfo)
+    }
     LaunchedEffect(player) {
         var ticks=0
         while(true) {
             position=player.currentPosition; duration=player.duration.coerceAtLeast(0); playing=player.isPlaying
             if(++ticks%4==0 && player.playbackState==Player.STATE_READY) vm.saveProgress(playback,position,duration)
+            vm.publishPlayerState(playerState())
             delay(500)
         }
     }
@@ -303,13 +350,61 @@ class PlaybackDataSourceFactory(private val fallback: DataSource.Factory) : Data
     }
     fun chooseVideo(id: String) { sourceVideo=id;sourceChoices=emptyList();menu="Sources" }
     fun exit() { vm.saveProgress(playback,player.currentPosition,player.duration,ended); vm.closePlayer() }
+    // Everything the web remote can ask for, applied against the live player.
+    LaunchedEffect(player) {
+        vm.playerCommand.collect { command ->
+            when(command.optString("action")) {
+                "play" -> player.play()
+                "pause" -> player.pause()
+                "play_pause" -> if(player.playWhenReady) player.pause() else player.play()
+                "seek" -> if(player.isCurrentMediaItemSeekable)
+                    player.seekTo(command.optLong("position_ms").coerceIn(0L,player.duration.coerceAtLeast(0)))
+                "seek_by" -> if(player.isCurrentMediaItemSeekable)
+                    player.seekTo((player.currentPosition+command.optLong("offset_ms")).coerceIn(0L,player.duration.coerceAtLeast(0)))
+                "speed" -> { val value=command.optDouble("value",1.0).toFloat(); speed=value; player.setPlaybackSpeed(value); vm.setPlayerPreference("player_speed",value) }
+                "resize" -> { val value=command.optInt("value",0); resize=value; vm.setPlayerPreference("player_resize",value) }
+                "subtitle_size" -> { val value=command.optString("value","medium"); subtitleSize=value; vm.setPlayerPreference("player_subtitle_size",value) }
+                "track" -> {
+                    val type=if(command.optString("kind")=="audio") C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
+                    val parameters=player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
+                    if(command.isNull("id") || !command.has("id")) {
+                        // Nothing chosen means automatic audio, or subtitles off.
+                        parameters.setTrackTypeDisabled(type,type==C.TRACK_TYPE_TEXT)
+                    } else {
+                        val target=command.optInt("id")
+                        parameters.setTrackTypeDisabled(type,false)
+                        tracks.groups.forEachIndexed { groupIndex, group ->
+                            if(group.type==type) for(index in 0 until group.length) if(group.isTrackSupported(index) && groupIndex*10000+index==target)
+                                parameters.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup,listOf(index)))
+                        }
+                    }
+                    player.trackSelectionParameters=parameters.build()
+                }
+                "episode" -> playback.title.videos.getOrNull(command.optInt("id",-1))?.let { entry ->
+                    val id=entry.text("id"); if(id.isNotEmpty() && id!=playback.videoId) chooseVideo(id)
+                }
+                "source" -> allSources.getOrNull(command.optInt("id",-1))?.let { entry ->
+                    scope.launch {
+                        try { vm.replacePlayback(playback,playback.videoId,entry,player.currentPosition,player.duration,ended) }
+                        catch(e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch(_: Exception) { error="This source could not open. Try another." }
+                    }
+                }
+                "retry" -> { ended=false; error=null; retry++ }
+                "stop" -> exit()
+            }
+            interaction++
+        }
+    }
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable()) {
         AndroidView(factory={ ctx -> PlayerView(ctx).apply {
             layoutParams=ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT)
             this.player=player; useController=false
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             keepScreenOn=true; isFocusable=false; descendantFocusability=ViewGroup.FOCUS_BLOCK_DESCENDANTS
-        } },update={it.player=player;it.resizeMode=resize},modifier=Modifier.fillMaxSize())
+        } },update={it.player=player;it.resizeMode=resize
+            it.subtitleView?.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION*when(subtitleSize){"small"->.8f;"large"->1.3f;else->1f})
+        },modifier=Modifier.fillMaxSize())
         if(controlsVisible && error==null && !ended) {
             Column(Modifier.align(Alignment.TopStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.85f),Color.Transparent))).padding(36.dp)) {
                 Heading(playback.title.name)
@@ -398,9 +493,9 @@ class PlaybackDataSourceFactory(private val fallback: DataSource.Factory) : Data
                         }
                     }
                 } else if(page=="Playback speed") {
-                    items(listOf(.5f,.75f,1f,1.25f,1.5f,2f)) { value -> Action("${if(speed==value) "✓ " else ""}${value}×",{speed=value;player.setPlaybackSpeed(value);menu=null},if(value==.5f) Modifier.focusRequester(first) else Modifier) }
+                    items(listOf(.5f,.75f,1f,1.25f,1.5f,2f)) { value -> Action("${if(speed==value) "✓ " else ""}${value}×",{speed=value;player.setPlaybackSpeed(value);vm.setPlayerPreference("player_speed",value);menu=null},if(value==.5f) Modifier.focusRequester(first) else Modifier) }
                 } else if(page=="Picture size") {
-                    items(listOf("Fit" to AspectRatioFrameLayout.RESIZE_MODE_FIT,"Zoom" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM,"Stretch" to AspectRatioFrameLayout.RESIZE_MODE_FILL)) { (label,value) -> Action(label,{resize=value;menu=null},if(label=="Fit") Modifier.focusRequester(first) else Modifier) }
+                    items(listOf("Fit" to AspectRatioFrameLayout.RESIZE_MODE_FIT,"Zoom" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM,"Stretch" to AspectRatioFrameLayout.RESIZE_MODE_FILL)) { (label,value) -> Action(label,{resize=value;vm.setPlayerPreference("player_resize",value);menu=null},if(label=="Fit") Modifier.focusRequester(first) else Modifier) }
                 } else if(page=="Episodes") {
                     item { Action("Back",{menu="Options"},Modifier.focusRequester(first)) }
                     if(playback.title.videos.isEmpty()) item { Hint("This title has no episodes.") }

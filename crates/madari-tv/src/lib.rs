@@ -1,5 +1,8 @@
 //! Android JNI boundary. Policies and persistence stay in the shared Rust libraries.
 mod web;
+/// Re-exported for the `web_openapi` example used to generate `web/openapi.json`.
+#[cfg(feature = "openapi")]
+pub use web::openapi_document;
 use jni::{
     JNIEnv,
     objects::{JByteArray, JClass, JString},
@@ -10,6 +13,7 @@ use madari_model::*;
 use madari_native::{
     internal_media::{InternalMedia, MediaFile},
     profiles::{ProfileSession, Profiles},
+    trakt::{Client, Credentials, DeviceCode, Poll},
 };
 use serde_json::{Value, json};
 use std::{
@@ -46,10 +50,15 @@ pub struct Bridge {
     path: PathBuf,
     web: Mutex<Option<web::WebServer>>,
     web_revision: Arc<AtomicU64>,
+    /// Remote keys and player actions queued by the web UI, drained by the Kotlin poll loop.
+    web_commands: Arc<Mutex<Vec<Value>>>,
+    /// Latest player state, published by the TV and streamed to open sockets.
+    web_player: Arc<Mutex<Value>>,
     state: Mutex<State>,
     media: Arc<InternalMedia>,
     readers: Mutex<HashMap<i64, Arc<Mutex<MediaFile>>>>,
     next_reader: AtomicI64,
+    trakt_pending: Mutex<Option<(Client, DeviceCode)>>,
 }
 fn invalid(message: &str) -> Error {
     Error::new(ErrorCode::InvalidInput, message)
@@ -74,6 +83,8 @@ impl Bridge {
             path: path.clone(),
             web: Mutex::new(None),
             web_revision: Arc::new(AtomicU64::new(0)),
+            web_commands: Arc::new(Mutex::new(Vec::new())),
+            web_player: Arc::new(Mutex::new(Value::Null)),
             state: Mutex::new(State {
                 profiles,
                 session: None,
@@ -81,6 +92,7 @@ impl Bridge {
             media: Arc::new(InternalMedia::new(path.join("media"))),
             readers: Mutex::new(HashMap::new()),
             next_reader: AtomicI64::new(1),
+            trakt_pending: Mutex::new(None),
         })
     }
     pub fn call(&self, operation: &str, args: Value) -> Result<Value> {
@@ -89,6 +101,19 @@ impl Bridge {
                 "state":s.state,"downloaded":s.downloaded,"total":s.total,
                 "download_speed":s.download_bytes_per_second,"upload_speed":s.upload_bytes_per_second,"peers":s.peers
             })).unwrap_or(Value::Null));
+        }
+        if operation == "player_state" {
+            // The player lives in Kotlin, so it reports state here and the server
+            // streams it to every paired browser.
+            if let Ok(mut player) = self.web_player.lock() {
+                *player = args.clone();
+            }
+            if let Ok(web) = self.web.lock()
+                && let Some(server) = web.as_ref()
+            {
+                server.publish(args);
+            }
+            return Ok(Value::Null);
         }
         if matches!(operation, "web_status" | "web_start" | "web_stop") {
             let mut web = self
@@ -106,15 +131,27 @@ impl Bridge {
                             self.path.clone(),
                             self.web_revision.clone(),
                             "0.0.0.0:11471".parse().unwrap(),
+                            self.web_commands.clone(),
+                            self.web_player.clone(),
                         ))
                         .map_err(|_| {
                             invalid("Could not start web settings on port 11471. Try again.")
                         })?,
                 );
             }
-            return Ok(web.as_ref().map(|s| s.status()).unwrap_or_else(
+            // Commands are drained rather than read, so a key is delivered exactly once.
+            let commands = self
+                .web_commands
+                .lock()
+                .map(|mut queue| std::mem::take(&mut *queue))
+                .unwrap_or_default();
+            let mut status = web.as_ref().map(|s| s.status()).unwrap_or_else(
                 || json!({"running":false,"revision":self.web_revision.load(Ordering::Relaxed)}),
-            ));
+            );
+            if let Some(map) = status.as_object_mut() {
+                map.insert("commands".into(), json!(commands));
+            }
+            return Ok(status);
         }
         if operation == "preferred_tracks" {
             let prefs: PlaybackPreferences = decode(args["preferences"].clone())?;
@@ -185,9 +222,53 @@ impl Bridge {
                     Ok(json!({"video":video}))
                 }
                 "install" => encode(core.install(uuid::Uuid::new_v4().to_string(), &string(&args,"url"), args["allow_local"].as_bool().unwrap_or(false)).await?),
+                "configure_addon" => encode(core.configure_addon(&string(&args,"id"), &string(&args,"url"), args["allow_local"].as_bool().unwrap_or(false)).await?),
                 "enable" => encode(core.set_enabled(&string(&args,"id"), args["enabled"].as_bool().unwrap_or(false)).await?),
                 "remove_addon" => encode(core.remove_addon(&string(&args,"id")).await?),
                 "reorder" => encode(core.reorder(&decode::<Vec<String>>(args)?).await?),
+                "share" => { profiles.share(session, string(&args,"id"), string(&args,"target_id"), string(&args,"pin")).await?; Ok(Value::Null) }
+                "linked_profiles" => encode(profiles.linked_profiles(session, string(&args,"id")).await?),
+                "trakt_status" => {
+                    let connected = profiles.trakt_connected(session.clone()).await?;
+                    let data = profiles.trakt_data(session).await?;
+                    Ok(json!({
+                        "connected": connected,
+                        "username": data.as_ref().map(|d| d.username.clone()).unwrap_or_default(),
+                        "lists": data.map(|d| d.lists.len()).unwrap_or(0)
+                    }))
+                }
+                "trakt_connect_start" => {
+                    let redirect = string(&args,"redirect_uri");
+                    let client = Client::new(Credentials {
+                        client_id: string(&args,"client_id"),
+                        client_secret: string(&args,"client_secret"),
+                        redirect_uri: if redirect.is_empty() { "urn:ietf:wg:oauth:2.0:oob".into() } else { redirect },
+                    })?;
+                    let code = client.device_code().await?;
+                    let response = json!({"user_code":code.user_code,"verification_url":code.verification_url,"expires_in":code.expires_in,"interval":code.interval});
+                    *self.trakt_pending.lock().map_err(|_| invalid("Trakt state unavailable"))? = Some((client, code));
+                    Ok(response)
+                }
+                "trakt_connect_poll" => {
+                    let pending = self.trakt_pending.lock().map_err(|_| invalid("Trakt state unavailable"))?.take();
+                    let Some((client, code)) = pending else { return Err(invalid("Start Trakt setup first")) };
+                    match client.poll(&code).await? {
+                        Poll::Pending => {
+                            *self.trakt_pending.lock().map_err(|_| invalid("Trakt state unavailable"))? = Some((client, code));
+                            Ok(json!({"status":"pending"}))
+                        }
+                        Poll::SlowDown(seconds) => {
+                            *self.trakt_pending.lock().map_err(|_| invalid("Trakt state unavailable"))? = Some((client, code));
+                            Ok(json!({"status":"slow_down","interval":seconds}))
+                        }
+                        Poll::Authorized(tokens) => { profiles.connect_trakt(session, client, tokens).await?; Ok(json!({"status":"authorized"})) }
+                    }
+                }
+                "trakt_sync" => {
+                    let data = profiles.sync_trakt(session, args["stale"].as_bool().unwrap_or(false)).await?;
+                    Ok(json!({"lists":data.as_ref().map(|d| d.lists.len()).unwrap_or(0)}))
+                }
+                "trakt_disconnect" => Ok(json!({"revoked":profiles.disconnect_trakt(session).await?})),
                 "query" => encode(core.query(&string(&args,"installation_id"), decode(args["request"].clone())?).await?),
                 "query_all" => encode(core.query_all(decode(args)?).await?),
                 "metadata" => encode(core.metadata(&decode(args["key"].clone())?, decode(args["preview"].clone())?).await?),

@@ -18,7 +18,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -33,6 +35,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = CoreRepository(application)
     private val mutable = MutableStateFlow(TvState())
     val state = mutable.asStateFlow()
+    // Remote keys from the web UI, replayed into the app's own key dispatch.
+    private val remoteKeys = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    val remote = remoteKeys.asSharedFlow()
+    // Player actions from the web UI, applied by the screen that owns the player.
+    private val playerActions = MutableSharedFlow<JSONObject>(extraBufferCapacity = 32)
+    val playerCommand = playerActions.asSharedFlow()
+    private var publishingPlayerState = false
     private var operation: Job? = null
     private var generation = 0
     private var cachedHome = emptyList<Shelf>()
@@ -41,9 +50,19 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             var revision = 0L
             while (true) {
-                delay(3000)
+                // Short enough that a web remote key lands promptly; the call is in-process JNI.
+                delay(400)
                 try {
                     val status = repository.objectCall("web_status")
+                    status.optJSONArray("commands")?.let { queued ->
+                        for (index in 0 until queued.length()) {
+                            val item = queued.optJSONObject(index) ?: continue
+                            when (item.optString("type")) {
+                                "key" -> remoteKeys.tryEmit(item.optString("command"))
+                                "player" -> playerActions.tryEmit(item)
+                            }
+                        }
+                    }
                     if(status.toString()!=state.value.web.toString()) {
                         val address=webAddress(status)
                         mutable.update { it.copy(web = status, webAddress = address) }
@@ -168,7 +187,16 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun selectTab(tab: String) = run(replace = true) {
         if (state.value.settingsUnlocked) repository.call("lock_settings")
-        mutable.update { it.copy(tab = tab, detail = null, sources = null, catalog = null, settingsUnlocked = false, notices = emptyList(), shelves = if(tab == "Home") cachedHome else emptyList(), query = "") }
+        // Linux authorizes unprotected profiles with an empty PIN; mirror that so Settings
+        // never asks for a PIN that was never set.
+        val profile = state.value.profile
+        val protected = profile != null && (profile.optBoolean("pin_protected") || profile.optBoolean("kids"))
+        val unlocked = if (tab == "Settings" && !protected) {
+            try { repository.call("authorize", obj("pin" to "")); true }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { false }
+        } else false
+        mutable.update { it.copy(tab = tab, detail = null, sources = null, catalog = null, settingsUnlocked = unlocked, notices = emptyList(), shelves = if(tab == "Home") cachedHome else emptyList(), query = "") }
         refreshSnapshot()
         if (tab == "Home" && cachedHome.isEmpty()) loadHome()
         if (tab == "Calendar") { val calendar = repository.objectCall("calendar"); mutable.update { it.copy(calendar = calendar) } }
@@ -332,13 +360,95 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         val playback = state.value.playback ?: return
         mutable.update { it.copy(playback = null) }
         run {
+            // Tell paired browsers the TV is no longer playing anything.
+            publish(obj("active" to false))
             if (playback.token.isNotEmpty()) repository.call("revoke", obj("token" to playback.token))
             refreshSnapshot()
             if(next && playback.nextVideo != null) fetchSources(playback.title,playback.nextVideo)
         }
     }
+    /**
+     * Streams the TV's player state to paired browsers. Publishes are skipped
+     * while one is in flight so a slow bridge cannot build a backlog.
+     */
+    fun publishPlayerState(state: JSONObject) {
+        if (publishingPlayerState) return
+        publishingPlayerState = true
+        viewModelScope.launch {
+            try { publish(state) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Web settings may be stopped; nothing to report to. */ }
+            finally { publishingPlayerState = false }
+        }
+    }
+    private suspend fun publish(state: JSONObject) { repository.objectCall("player_state", state) }
     fun authorize(pin: String) = run { repository.call("authorize",obj("pin" to pin)); loadProfiles(); mutable.update { it.copy(settingsUnlocked = true) } }
+    /** Writes the profile-wide playback preferences and refreshes the cached snapshot. */
+    fun setPreferences(preferences: JSONObject) = run { repository.call("preferences", preferences); refreshSnapshot() }
+
+    // Trakt: credentials are stored once, then connect is a single action. Secrets never
+    // enter the public snapshot; the bridge keeps them in the profile database.
+    private var traktJob: Job? = null
+    private val settings get() = getApplication<Application>().getSharedPreferences("madari", 0)
+    fun traktCredentials(): Triple<String, String, String> = Triple(
+        settings.getString("trakt_client_id", "").orEmpty(),
+        settings.getString("trakt_client_secret", "").orEmpty(),
+        settings.getString("trakt_redirect", "urn:ietf:wg:oauth:2.0:oob").orEmpty()
+    )
+    fun refreshTrakt() = run { mutable.update { it.copy(trakt = repository.objectCall("trakt_status")) } }
+    fun traktConnect(clientId: String, clientSecret: String, redirect: String) = run {
+        settings.edit().putString("trakt_client_id", clientId.trim())
+            .putString("trakt_client_secret", clientSecret.trim())
+            .putString("trakt_redirect", redirect.trim().ifEmpty { "urn:ietf:wg:oauth:2.0:oob" }).apply()
+        val code = repository.objectCall("trakt_connect_start", obj(
+            "client_id" to clientId.trim(), "client_secret" to clientSecret.trim(), "redirect_uri" to redirect.trim()))
+        mutable.update { it.copy(traktDevice = code) }
+        pollTrakt(code)
+    }
+    fun traktCancel() { traktJob?.cancel(); mutable.update { it.copy(traktDevice = JSONObject()) } }
+    private fun pollTrakt(code: JSONObject) {
+        traktJob?.cancel()
+        traktJob = viewModelScope.launch {
+            val deadline = System.currentTimeMillis() + code.optLong("expires_in", 900).coerceAtLeast(60) * 1000
+            var interval = code.optLong("interval", 5).coerceAtLeast(1) * 1000
+            while (System.currentTimeMillis() < deadline) {
+                delay(interval)
+                val result = try { repository.objectCall("trakt_connect_poll") }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { mutable.update { it.copy(traktDevice = JSONObject(), error = e.message ?: "Trakt connection failed.") }; return@launch }
+                when (result.text("status")) {
+                    "authorized" -> { mutable.update { it.copy(traktDevice = JSONObject(), trakt = repository.objectCall("trakt_status")) }; return@launch }
+                    "slow_down" -> interval = result.optLong("interval", interval / 1000).coerceAtLeast(1) * 1000
+                }
+            }
+            mutable.update { it.copy(traktDevice = JSONObject(), error = "The Trakt code expired. Connect again for a new code.") }
+        }
+    }
+    fun traktSync() = run {
+        repository.objectCall("trakt_sync", obj("stale" to false))
+        mutable.update { it.copy(trakt = repository.objectCall("trakt_status")) }
+        refreshSnapshot()
+    }
+    fun traktDisconnect() = run { repository.objectCall("trakt_disconnect"); mutable.update { it.copy(trakt = obj("connected" to false)) } }
+
+    // Device-local player display preferences (Linux keeps these beside the player too).
+    fun playerSubtitleSize(): String = settings.getString("player_subtitle_size", "medium").orEmpty()
+    fun playerResizeMode(): Int = settings.getInt("player_resize", 0)
+    fun playerSpeed(): Float = settings.getFloat("player_speed", 1f)
+    fun setPlayerPreference(key: String, value: Any) {
+        val editor = settings.edit()
+        when (value) { is String -> editor.putString(key, value); is Int -> editor.putInt(key, value); is Float -> editor.putFloat(key, value) }
+        editor.apply()
+    }
     fun install(url: String, allowLocal: Boolean) = run { repository.call("install",obj("url" to url.trim(),"allow_local" to allowLocal)); refreshSnapshot() }
+    /** Reconfigure a shared addon installation; changes apply to every linked profile. */
+    fun configureAddon(id: String, url: String, allowLocal: Boolean) = run { repository.call("configure_addon",obj("id" to id,"url" to url.trim(),"allow_local" to allowLocal)); refreshSnapshot() }
+    /** Link this addon installation to another profile (its PIN or guardian PIN required). */
+    fun shareAddon(addon: JSONObject, targetId: String, pin: String) = run { repository.call("share",obj("id" to addon.text("installation_id"),"target_id" to targetId,"pin" to pin)); refreshSnapshot() }
+    suspend fun linkedProfiles(addon: JSONObject): List<String> = try {
+        val array = JSONArray(repository.call("linked_profiles",obj("id" to addon.text("installation_id"))))
+        (0 until array.length()).map { array.optString(it) }
+    } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
     fun enable(addon: JSONObject) = run { repository.call("enable",obj("id" to addon.text("installation_id"),"enabled" to !addon.optBoolean("enabled"))); refreshSnapshot() }
     fun removeAddon(addon: JSONObject) = run { repository.call("remove_addon",obj("id" to addon.text("installation_id"))); refreshSnapshot() }
     fun moveAddon(addon: JSONObject, delta: Int) = run {

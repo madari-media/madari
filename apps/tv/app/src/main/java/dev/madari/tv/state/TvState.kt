@@ -29,5 +29,7 @@ data class TvState(
     val calendar: JSONObject = JSONObject(),
     val query: String = "",
     val notices: List<String> = emptyList(),
-    val catalog: Catalog? = null
+    val catalog: Catalog? = null,
+    val trakt: JSONObject = JSONObject(),
+    val traktDevice: JSONObject = JSONObject()
 )
