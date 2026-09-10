@@ -82,8 +82,9 @@ of the chosen FFmpeg build/encoders must be reviewed before shipping installers.
    negotiation, subtitle choices, disk quotas, torrent lifecycle controls, HLS,
    remote deployment and API-key management.
 3. Refine the Linux GTK4/libadwaita client and mpv player integration with
-   richer catalog presentation and codec negotiation. Other platform clients and language bindings are deferred
-   by the user's current scope; keep the core portable without building them.
+   richer catalog presentation and codec negotiation. The Android TV and iOS clients
+   are built; other platform clients and language bindings remain deferred by the
+   user's current scope, so keep the core portable without adding them.
 
 ## Unified playback preparation
 

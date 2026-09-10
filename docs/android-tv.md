@@ -12,10 +12,11 @@ There is no WebView, companion server requirement, or duplicate Kotlin media cor
 Compose for TV screens
     → TvViewModel / CoreRepository (calls on Dispatchers.IO)
         → NativeCore JNI
-            → madari-tv (thin platform boundary)
-                → madari-core (catalogs, metadata, library, resume, episode policy)
-                → madari-native (profiles, PINs, HTTP, SQLite, internal media)
-                → madari-media (embedded torrent engine)
+            → madari-android (JNI cdylib; only crate that is one)
+                → madari-tv (shared mobile boundary: Bridge and web settings)
+                    → madari-core (catalogs, metadata, library, resume, episode policy)
+                    → madari-native (profiles, PINs, HTTP, SQLite, internal media)
+                    → madari-media (embedded torrent engine)
 
 Media3 ExoPlayer
     → HTTP / HLS / DASH data sources
@@ -23,7 +24,11 @@ Media3 ExoPlayer
 ```
 
 `madari-tv` owns one Tokio runtime, the profile session and a checked registry of
-media readers. Handles are integers, not Rust pointers exposed to Kotlin. Every
+media readers. `madari-android` is the thin JNI layer over it, and the only crate
+that builds a `cdylib` — the shared crate has to stay linkable for iOS, where
+`ld64.lld` cannot produce a dylib. Its library name is still `madari_tv`, so the
+artifact remains `libmadari_tv.so` and `System.loadLibrary` is unchanged.
+Handles are integers, not Rust pointers exposed to Kotlin. Every
 JNI entry point catches Rust panics and reports errors as Java exceptions.
 Source fields cross the boundary intact; shared Rust code validates delivery,
 source headers and resume positions. Torrent bytes stay in process, without a
@@ -81,9 +86,13 @@ operation goes through `CoreRepository` on `Dispatchers.IO`.
 - TV launcher entry and banner, remote focus indication, catalog focus restoration,
   error recovery, empty states and font scaling through Compose typography.
 
-Nothing is installed automatically. Create a profile, open Settings (settings
-unlock automatically when the profile has no PIN), then install a configured addon
-manifest URL. Only content supplied by the user's addons is shown.
+A new profile is offered two curated addons once, by `Core::install_default_addons`:
+Cinemeta for catalogs and metadata, and OpenSubtitles for subtitles. The offer is
+recorded per profile, so a default removed afterwards stays removed, and a first run
+that could not reach one is retried on the next open rather than leaving a gap.
+Anything else is installed deliberately: open Settings (settings unlock automatically
+when the profile has no PIN) and add a configured addon manifest URL, or pick one from
+the recommended list. Only content supplied by the user's addons is shown.
 
 ## Build
 

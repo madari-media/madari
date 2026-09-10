@@ -56,6 +56,9 @@ fn forbidden(message: &str) -> Error {
 fn invalid(message: &str) -> Error {
     Error::new(ErrorCode::InvalidInput, message)
 }
+fn conflict(message: impl Into<String>) -> Error {
+    Error::new(ErrorCode::Conflict, message)
+}
 fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -483,6 +486,73 @@ impl Profiles {
         .await
     }
 
+    /// Deletes a profile and everything that belongs to it.
+    ///
+    /// Destructive, so it takes the same authorization as editing: the caller must
+    /// hold a session with settings unlocked, and a kids profile additionally needs
+    /// the guardian's PIN.
+    ///
+    /// A profile that guards another is refused rather than cascaded. A kids profile
+    /// without its guardian could not be left, authorized or deleted afterwards, so
+    /// the guardians are named and the caller decides.
+    pub async fn delete(&self, session: ProfileSession, pin: String) -> Result<()> {
+        self.run(move |db| {
+            let p = authorized(db, &session, true)?;
+            if p.kids {
+                verify_pin(&db.connection, &guardian(&db.connection, &p)?, &pin)?;
+            }
+            // Scoped so the statement's borrow of the connection ends before the
+            // transaction below needs it mutably.
+            let dependents: Vec<String> = {
+                let mut statement = db
+                    .connection
+                    .prepare("SELECT name FROM profiles WHERE guardian_id=?1 ORDER BY name")
+                    .map_err(storage_error)?;
+                let rows = statement
+                    .query_map([&p.id], |r| r.get(0))
+                    .map_err(storage_error)?;
+                rows.collect::<std::result::Result<_, _>>()
+                    .map_err(storage_error)?
+            };
+            if !dependents.is_empty() {
+                return Err(conflict(format!(
+                    "this profile guards {}. Delete those profiles first.",
+                    dependents.join(", ")
+                )));
+            }
+            let tx = db.connection.transaction().map_err(storage_error)?;
+            // profile_trakt and profile_metadata_cache cascade on delete; these two do
+            // not, so they are removed explicitly.
+            tx.execute("DELETE FROM profile_state WHERE profile_id=?1", [&p.id])
+                .map_err(storage_error)?;
+            tx.execute("DELETE FROM profile_addons WHERE profile_id=?1", [&p.id])
+                .map_err(storage_error)?;
+            tx.execute("DELETE FROM profiles WHERE id=?1", [&p.id])
+                .map_err(storage_error)?;
+            // An installation no profile links to any more has no owner left.
+            tx.execute(
+                "DELETE FROM shared_addons WHERE NOT EXISTS(
+                     SELECT 1 FROM profile_addons WHERE addon_id=shared_addons.id)",
+                [],
+            )
+            .map_err(storage_error)?;
+            // Kids mode cannot outlive the profile it was pinned to.
+            tx.execute(
+                "UPDATE profile_meta SET active_kids=NULL WHERE id=1 AND active_kids=?1",
+                [&p.id],
+            )
+            .map_err(storage_error)?;
+            tx.execute("UPDATE profile_meta SET revision=revision+1 WHERE id=1", [])
+                .map_err(storage_error)?;
+            tx.commit().map_err(storage_error)?;
+            if db.active.as_ref().is_some_and(|a| a.id == p.id) {
+                db.active = None;
+            }
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn share(
         &self,
         session: ProfileSession,
@@ -639,6 +709,66 @@ impl Storage for ProfileStorage {
 mod tests {
     use super::*;
     use madari_model::{ItemKey, LibraryEntry, Progress};
+
+    /// Deletion is destructive, so the tests cover what it must refuse as much as what
+    /// it removes.
+    #[tokio::test]
+    async fn deleting_a_profile_removes_its_state_and_refuses_guardians() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.sqlite");
+        let p = Profiles::open(path.clone()).await.unwrap();
+        let adult = p
+            .create_with_avatar(
+                None,
+                "Parent".into(),
+                false,
+                "1234".into(),
+                Some("Fox.webp".into()),
+            )
+            .await
+            .unwrap();
+        let session = p.unlock(adult.id.clone(), "1234".into()).await.unwrap();
+        p.authorize_settings(session.clone(), "1234".into())
+            .await
+            .unwrap();
+        let kid = p
+            .create_with_avatar(Some(session.clone()), "Kid".into(), true, "".into(), None)
+            .await
+            .unwrap();
+
+        // A guardian cannot be removed while a kids profile still points at it.
+        let error = p.delete(session.clone(), "1234".into()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(error.message.contains("Kid"), "{}", error.message);
+
+        // The kids profile is deleted on the guardian's authority.
+        let kid_session = p.unlock(kid.id.clone(), "".into()).await.unwrap();
+        assert!(
+            p.delete(kid_session.clone(), "0000".into()).await.is_err(),
+            "the wrong guardian PIN must not delete a kids profile"
+        );
+        p.authorize_settings(kid_session.clone(), "1234".into())
+            .await
+            .unwrap();
+        p.delete(kid_session, "1234".into()).await.unwrap();
+        assert_eq!(p.list().await.unwrap().len(), 1);
+
+        // Deleting a profile ends its session, so the guardian is opened again
+        // before it can be removed. Its stored state goes with it.
+        let session = p.unlock(adult.id.clone(), "1234".into()).await.unwrap();
+        p.authorize_settings(session.clone(), "1234".into())
+            .await
+            .unwrap();
+        p.delete(session, "1234".into()).await.unwrap();
+        assert!(p.list().await.unwrap().is_empty());
+        // Read the file directly: the profile's stored state is what must be gone, not
+        // just its row in `profiles`.
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        let remaining: i64 = connection
+            .query_row("SELECT COUNT(*) FROM profile_state", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+    }
 
     #[tokio::test]
     async fn avatar_updates_are_authorized_atomic_and_persistent() {

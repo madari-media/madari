@@ -9,9 +9,12 @@ episode/source selection, library controls, and mpv playback.
 
 The primary client is **Linux GTK4/libadwaita**, with an experimental Windows x64
 build of the same interface. See [Windows build and VM testing](docs/windows.md).
-A native Kotlin **Android TV / Google TV** client now lives in `apps/tv`, using
+A native Kotlin **Android TV / Google TV** client lives in `apps/tv`, using
 Compose for TV and the shared Rust libraries through JNI. See
-[TV build and setup](docs/android-tv.md). Other platform clients remain deferred.
+[TV build and setup](docs/android-tv.md). A native SwiftUI **iOS** client lives in
+`apps/ios`, using the same shared libraries through a UniFFI boundary and built
+from Linux with xtool, with no Xcode. See [iOS build and setup](docs/ios.md).
+Other platform clients remain deferred.
 
 ## Linux app
 
@@ -32,6 +35,10 @@ cargo run --locked -p madari-linux
 Create a regular profile first. Its optional 4–8 digit PIN protects entry and
 settings. Open Settings to install addons by manifest URL, enable/disable,
 reorder, reconfigure, remove a profile's link, share, or create more profiles.
+A new profile is offered two curated addons once — Cinemeta and OpenSubtitles — and
+records that offer, so a default removed afterwards stays removed. Deleting a profile
+removes its library, progress, addon links and Trakt connection; a profile that still
+guards a kids profile is refused rather than cascaded.
 Creating a kids profile requires a regular profile with a PIN; that profile
 becomes its guardian. Kids can open their profile without a PIN. Changing their
 addons, sharing, or switching out requires adult authorization. Kids mode remains

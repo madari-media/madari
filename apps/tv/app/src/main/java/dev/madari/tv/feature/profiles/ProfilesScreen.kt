@@ -81,6 +81,8 @@ fun ProfilesScreen(state: TvState, vm: TvViewModel) {
     var avatar by remember { mutableStateOf("") }
     var editAvatar by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<JSONObject?>(null) }
+    // The profile awaiting delete confirmation, with the PIN that authorized it.
+    var deleting by remember { mutableStateOf<Pair<JSONObject, String>?>(null) }
     var editName by remember { mutableStateOf("") }
     var editPin by remember { mutableStateOf("") }
     var editNewPin by remember { mutableStateOf("") }
@@ -276,9 +278,46 @@ fun ProfilesScreen(state: TvState, vm: TvViewModel) {
                     )
                     Action("Cancel", { editing = null })
                 }
+                if (!profile.optBoolean("kids") || editPin.isNotBlank()) {
+                    Action(
+                        "Delete profile",
+                        {
+                            val target = profile
+                            val pin = editPin
+                            editing = null
+                            deleting = target to pin
+                        },
+                        enabled = !state.loading
+                    )
+                }
             }
             LaunchedEffect(choosingImage) {
                 if (!choosingImage) (if (returnToImage) imageFocus else focus).requestFocus()
+            }
+        }
+    }
+
+    // Deleting is irreversible, so it is confirmed by name and says what else goes.
+    deleting?.let { (target, pin) ->
+        Dialog(onDismissRequest = { deleting = null }) {
+            val confirm = remember { FocusRequester() }
+            Column(
+                Modifier.width(480.dp).background(TvColors.Panel, RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(16.dp))
+                    .padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Heading("Delete ${target.text("name")}?")
+                Hint("Its library, playback progress, addon links and any Trakt connection are removed from this TV. Other profiles are not affected. This cannot be undone.")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Action(
+                        "Delete profile",
+                        { vm.deleteProfile(target, pin); deleting = null },
+                        Modifier.focusRequester(confirm), primary = true
+                    )
+                    Action("Cancel", { deleting = null })
+                }
+                LaunchedEffect(Unit) { confirm.requestFocus() }
             }
         }
     }

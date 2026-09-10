@@ -148,11 +148,51 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
         loadProfiles()
     }
+    /**
+     * Deletes a profile and everything stored against it.
+     *
+     * Destructive and irreversible, so it opens the profile, authorizes it with the
+     * PIN the caller supplied, and deletes only then. The core refuses a profile that
+     * still guards a kids profile, and names them in its message.
+     */
+    fun deleteProfile(profile: JSONObject, pin: String) = run {
+        try {
+            repository.objectCall("unlock", obj("id" to profile.text("id"), "pin" to pin))
+            repository.call("authorize", obj("pin" to pin))
+            repository.call("delete_profile", obj("pin" to pin))
+        } finally {
+            // Never leave the picker holding another profile's session.
+            try { repository.call("leave", obj("pin" to pin)) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Already gone. */ }
+        }
+        loadProfiles()
+    }
+
     fun unlock(profile: JSONObject, pin: String) = run {
         cachedHome = emptyList()
         val selected = repository.objectCall("unlock", obj("id" to profile.text("id"), "pin" to pin))
         mutable.update { TvState(loading = true, profile = selected, web = it.web, webAddress = it.webAddress) }
-        refreshSnapshot(); loadHome()
+        refreshSnapshot(); installDefaultAddons(); loadHome()
+    }
+    /**
+     * Offers the curated addons to this profile. The decision is the core's: it
+     * remembers per profile whether the defaults have been offered, installs whichever
+     * are missing, and never re-adds one the user removed. Guarding on "the profile has
+     * no addons" here would bypass that and could leave a profile incomplete.
+     */
+    private suspend fun installDefaultAddons() {
+        try {
+            val outcome = repository.objectCall("install_defaults")
+            refreshSnapshot()
+            if (outcome.optJSONArray("failed")?.length() ?: 0 > 0) {
+                mutable.update { it.copy(notices = it.notices + "Some default addons could not be installed. Add them from Settings.") }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) {
+            // A profile is still usable without them, so this never blocks entry.
+            mutable.update { it.copy(notices = it.notices + "Default addons could not be installed. Add them from Settings.") }
+        }
     }
     fun leave(pin: String) = run {
         repository.call("leave", obj("pin" to pin))

@@ -29,7 +29,8 @@ verifier_manifest=$(cargo metadata --locked --format-version 1 --filter-platform
 mkdir -p apps/tv/app/libs
 verifier_dir="$(dirname "$verifier_manifest")"
 cp "$verifier_dir/maven/rustls/rustls-platform-verifier/0.1.1/rustls-platform-verifier-0.1.1.aar" apps/tv/app/libs/
-cargo build --locked -p madari-tv --target aarch64-linux-android --release
+# madari-android is the JNI cdylib; it keeps the libmadari_tv.so name.
+cargo build --locked -p madari-android --target aarch64-linux-android --release
 mkdir -p apps/tv/app/src/main/jniLibs/arm64-v8a
 cp target/aarch64-linux-android/release/libmadari_tv.so apps/tv/app/src/main/jniLibs/arm64-v8a/
 "$toolchain/llvm-strip" --strip-unneeded apps/tv/app/src/main/jniLibs/arm64-v8a/libmadari_tv.so
@@ -39,7 +40,7 @@ export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$toolchain/armv7a-linux-andr
 export CC_armv7_linux_androideabi="$toolchain/armv7a-linux-androideabi26-clang"
 export AR_armv7_linux_androideabi="$toolchain/llvm-ar"
 export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
-cargo build --locked -p madari-tv --target armv7-linux-androideabi --release
+cargo build --locked -p madari-android --target armv7-linux-androideabi --release
 mkdir -p apps/tv/app/src/main/jniLibs/armeabi-v7a
 cp target/armv7-linux-androideabi/release/libmadari_tv.so apps/tv/app/src/main/jniLibs/armeabi-v7a/
 "$toolchain/llvm-strip" --strip-unneeded apps/tv/app/src/main/jniLibs/armeabi-v7a/libmadari_tv.so

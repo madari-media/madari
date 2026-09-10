@@ -11,6 +11,8 @@ mod continuation;
 pub use continuation::{binge_group, same_binge_group};
 mod metadata;
 pub use metadata::ResolvedMetadata;
+mod defaults;
+pub use defaults::{DEFAULT_ADDONS, DefaultAddon, DefaultAddonFailure, DefaultAddonOutcome};
 mod playback;
 use async_trait::async_trait;
 use futures::{Stream as AsyncStream, StreamExt, channel::mpsc, stream};
@@ -20,6 +22,7 @@ pub use playback::{PlaybackMedia, resume_position};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use url::Url;
+use uuid::Uuid;
 
 /// Native adapters cross executor threads; browser adapters may own JS handles.
 #[cfg(not(target_arch = "wasm32"))]
@@ -67,6 +70,14 @@ pub struct Snapshot {
     #[serde(default)]
     pub playback_preferences: PlaybackPreferences,
     pub revision: u64,
+    /// Whether the curated default addons have been offered to this profile.
+    ///
+    /// Recorded rather than inferred from `addons` being empty: a first run where one
+    /// default could not be fetched would otherwise leave the profile permanently
+    /// missing it, and inferring from an empty list would re-add defaults a user
+    /// deliberately removed.
+    #[serde(default)]
+    pub defaults_seeded: bool,
     pub addons: Vec<Installation>,
     pub library: Vec<LibraryEntry>,
     pub progress: Vec<Progress>,
@@ -227,6 +238,72 @@ impl Core {
             Ok(())
         })
         .await
+    }
+
+    /// Installs [`DEFAULT_ADDONS`] on a profile that has not been offered them yet.
+    ///
+    /// The one-time marker is only set once every default is in place, so a first run
+    /// that could not reach one of them retries it on the next open instead of leaving
+    /// a profile permanently without it. Once seeded, defaults a user removes stay
+    /// removed.
+    pub async fn install_default_addons(&self) -> Result<DefaultAddonOutcome> {
+        let snapshot = self.storage.load().await?;
+        if snapshot.defaults_seeded {
+            return Ok(DefaultAddonOutcome {
+                skipped: true,
+                installed: Vec::new(),
+                failed: Vec::new(),
+            });
+        }
+        let present: Vec<String> = snapshot
+            .addons
+            .iter()
+            .map(|a| a.manifest_url.to_string())
+            .collect();
+        let mut installed = Vec::new();
+        let mut failed = Vec::new();
+        for entry in DEFAULT_ADDONS {
+            // Already in place from an earlier partial run.
+            if present.iter().any(|a| a == entry.url) {
+                continue;
+            }
+            let id = Uuid::new_v4().simple().to_string();
+            match self.install(id, entry.url, false).await {
+                Ok(_) => installed.push(entry.url.to_owned()),
+                Err(error) => failed.push(DefaultAddonFailure {
+                    url: entry.url.to_owned(),
+                    reason: error.message,
+                }),
+            }
+        }
+        let seeded = failed.is_empty();
+        if seeded {
+            self.mutate(|state| {
+                state.defaults_seeded = true;
+                Ok(())
+            })
+            .await?;
+        }
+        Ok(DefaultAddonOutcome {
+            skipped: false,
+            installed,
+            failed,
+        })
+    }
+
+    /// Manifest URLs this profile already has installed.
+    ///
+    /// The public snapshot deliberately omits the manifest URL, and clients need it to
+    /// tell a curated addon that is already installed from one that is not.
+    pub async fn installed_manifest_urls(&self) -> Result<Vec<String>> {
+        Ok(self
+            .storage
+            .load()
+            .await?
+            .addons
+            .iter()
+            .map(|a| a.manifest_url.to_string())
+            .collect())
     }
 
     pub async fn set_enabled(&self, id: &str, enabled: bool) -> Result<u64> {

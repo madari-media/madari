@@ -24,7 +24,19 @@ impl Ui {
         self.preferences_pages.borrow_mut().clear();
         let profiles = self.profiles.clone();
         self.run(
-            async move { profiles.unlock(id, pin).await },
+            async move {
+                let session = profiles.unlock(id, pin).await?;
+                // Seed a profile that has no addons at all. The core skips any profile
+                // that already has one, so a default the user removes stays removed,
+                // and a failure here never blocks entry.
+                let core = profiles.core(session.clone());
+                if let Ok(snapshot) = core.snapshot().await
+                    && snapshot.addons.is_empty()
+                {
+                    let _ = core.install_default_addons().await;
+                }
+                Ok(session)
+            },
             |ui, session| {
                 *ui.core.borrow_mut() = Some(ui.profiles.core(session.clone()));
                 *ui.session.borrow_mut() = Some(session);
