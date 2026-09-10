@@ -73,8 +73,15 @@ fi
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 cargo rustc --locked -q -p madari-ios --crate-type cdylib
+# A cdylib is only named .so where ELF is the object format. On macOS it is a .dylib,
+# and naming the Linux path there failed with a bare "No such file or directory" after
+# the build itself had already succeeded.
+extension="so"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  extension="dylib"
+fi
 cargo run --locked -q -p madari-ios --features cli --bin uniffi-bindgen -- \
-  generate --library target/debug/libmadari_ios.so --language swift --out-dir "$out"
+  generate --library "target/debug/libmadari_ios.$extension" --language swift --out-dir "$out"
 
 install_bindings() {
   local source="$1"
