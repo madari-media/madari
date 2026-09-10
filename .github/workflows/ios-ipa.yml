@@ -107,8 +107,17 @@ jobs:
 
       - name: Install xtool
         run: |
-          curl -fsSL -o xtool.zip \
-            "https://github.com/xtool-org/xtool/releases/download/v${XTOOL_VERSION}/xtool.app.zip"
+          # The release tag has no leading v, while gh prints one in its listing, so try
+          # both spellings rather than encoding that detail here and failing with a 404.
+          for tag in "${XTOOL_VERSION}" "v${XTOOL_VERSION}"; do
+            if curl -fsSL -o xtool.zip \
+              "https://github.com/xtool-org/xtool/releases/download/${tag}/xtool.app.zip"; then
+              echo "Downloaded xtool ${tag}"
+              break
+            fi
+          done
+          test -f xtool.zip \
+            || { echo "::error::could not download xtool ${XTOOL_VERSION}"; exit 1; }
           unzip -q xtool.zip
           BIN=$(find . -type f -path '*MacOS/xtool' | head -1)
           if [ -z "$BIN" ]; then
