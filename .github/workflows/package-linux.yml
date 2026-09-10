@@ -66,11 +66,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Prebuilt binaries, rather than `cargo install`, which would add minutes
-      # of compilation to every run.
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deb,cargo-generate-rpm
+      # Installed with cargo rather than with an install action: those resolve
+      # $HOME, and a container job sets HOME=/github/home while running as root,
+      # which makes them fail with "$HOME differs from euid-obtained home
+      # directory". This is slower but uses the same cargo that already works in
+      # this image.
+      - name: Packaging tools
+        run: cargo install --locked cargo-deb cargo-generate-rpm
 
       - name: Build
         run: cargo build --locked --release -p madari-linux
