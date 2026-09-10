@@ -6,9 +6,10 @@
 .env
 *.sqlite*
 
-# Crash dumps
-core
-core.*
+# Crash dumps. Anchored: a bare `core` also matched src/client/core/ in the
+# generated web client, silently leaving it out of the repository.
+/core
+/core.*
 
 # Android / Gradle
 .gradle/
