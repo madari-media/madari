@@ -37,15 +37,14 @@ jobs:
     # debian:trixie rather than the runner image: apps/linux needs pango >= 1.56
     # and gtk4/libadwaita/mpv headers, which ubuntu-24.04 does not have.
     container: debian:trixie-slim
-    if: github.event_name != 'pull_request' || matrix.arch == 'amd64'
     strategy:
       fail-fast: false
+      # A job-level `if` cannot see the matrix context — it is evaluated before
+      # the matrix expands — so the list itself is computed. Pull requests only
+      # exercise amd64, which is where a broken manifest or a missing asset shows
+      # up; releases build both.
       matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
+        include: ${{ github.event_name == 'pull_request' && fromJSON('[{"runner":"ubuntu-24.04","arch":"amd64"}]') || fromJSON('[{"runner":"ubuntu-24.04","arch":"amd64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
