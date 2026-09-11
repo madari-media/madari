@@ -117,13 +117,13 @@ jobs:
           cd apps/macos/build
           # ditto preserves the extended attributes and symlinks inside a framework, which
           # `zip -r` does not.
-          ditto -c -k --sequesterRsrc --keepParent Madari.app "Madari-${version}-macos-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent Madari.app "madari-macos-${version}-universal.zip"
           ls -la ./*.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: madari-macos-app
-          path: apps/macos/build/Madari-*-macos-universal.zip
+          path: apps/macos/build/madari-macos-*-universal.zip
           if-no-files-found: error
 
       - name: Attach to the release
@@ -133,5 +133,5 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           gh release upload "$TAG" \
-            "apps/macos/build/Madari-${VERSION}-macos-universal.zip" \
+            "apps/macos/build/madari-macos-${VERSION}-universal.zip" \
             --clobber --repo "$GITHUB_REPOSITORY"

@@ -90,9 +90,19 @@ jobs:
     # renamed and validated in one place.
     uses: ./.github/workflows/ios-ipa.yml
 
+  macos:
+    name: macOS app for the tag
+    needs: propose
+    if: always() && (needs.propose.outputs.released == 'true' || inputs.tag != '')
+    # Must grant what the called workflow declares, or GitHub rejects the call at
+    # validation time and the whole run fails to start.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/macos.yml
+
   attach:
     name: attach the artifacts
-    needs: [propose, build, linux, ios]
+    needs: [propose, build, linux, ios, macos]
     if: always() && needs.build.result == 'success' && needs.linux.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
@@ -119,6 +129,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: madari-ios-ipa
+          path: dist
+
+      # The macOS workflow names its archive with the version it read from version.txt, so
+      # nothing needs renaming here.
+      - if: needs.macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: madari-macos-app
           path: dist
 
       - name: Upload to the release
