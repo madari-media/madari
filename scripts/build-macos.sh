@@ -190,6 +190,10 @@ fi
 
 # MARK: - Bundle
 
+# The version comes from version.txt, so a release cannot ship a bundle whose version
+# disagrees with its tag. Read once, used by both plists below.
+version="$(cat version.txt 2>/dev/null || echo "0.0.0")"
+
 echo "==> Assembling $output"
 rm -rf "$output"
 mkdir -p "$output/Contents/MacOS" "$output/Contents/Resources" "$output/Contents/Frameworks"
@@ -197,6 +201,30 @@ mkdir -p "$output/Contents/MacOS" "$output/Contents/Resources" "$output/Contents
 install -m 0755 "$built_executable" "$output/Contents/MacOS/Madari"
 if [[ -n "$resource_bundle" ]]; then
   cp -R "$resource_bundle" "$output/Contents/Resources/"
+  # SwiftPM's resource bundle holds the files but ships no Info.plist, and macOS's
+  # `Bundle(url:)` refuses a directory without one. That is what killed the first macOS
+  # build at launch: `Bundle.module` could not find the bundle, and it reports that by
+  # calling fatalError from inside its own initialiser, on the main thread, in App.init().
+  # A bundle needs the manifest to be a bundle.
+  cat >"$output/Contents/Resources/Madari_Madari.bundle/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>media.madari.macos.resources</string>
+	<key>CFBundleName</key>
+	<string>Madari_Madari</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$version</string>
+</dict>
+</plist>
+PLIST
+  # The files also go in loose, which is the first place AppResources looks, so loading a
+  # font does not depend on bundle parsing at all.
+  cp -R "$resource_bundle"/. "$output/Contents/Resources/"
 else
   echo "::error::the SwiftPM resource bundle was not found; fonts and the logo live in it" >&2
   exit 1
@@ -216,10 +244,14 @@ done
 
 printf 'APPL????' >"$output/Contents/PkgInfo"
 
-# The version comes from version.txt, so a release cannot ship a bundle whose version
-# disagrees with its tag.
-version="$(cat version.txt 2>/dev/null || echo "0.0.0")"
 sed "s/__VERSION__/$version/g" apps/macos/Info.plist >"$output/Contents/Info.plist"
+
+# The resource bundle must be a bundle, or the app cannot find its own font. Checked here
+# because this failure is invisible until launch.
+test -f "$output/Contents/Resources/Madari_Madari.bundle/Info.plist" \
+  || { echo "::error::the resource bundle has no Info.plist" >&2; exit 1; }
+test -f "$output/Contents/Resources/DMSans.ttf" \
+  || { echo "::error::the font was not copied loose into Resources" >&2; exit 1; }
 
 # MARK: - Sign
 

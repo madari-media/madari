@@ -9,7 +9,7 @@ import SwiftUI
 @MainActor
 enum BrandAsset {
     static let logo: PlatformImage? = {
-        guard let url = Bundle.module.url(forResource: "MadariLogo", withExtension: "png") else {
+        guard let url = AppResources.url(forResource: "MadariLogo", withExtension: "png") else {
             DebugLog.write("brand logo missing from the resource bundle")
             return nil
         }

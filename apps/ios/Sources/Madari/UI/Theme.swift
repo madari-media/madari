@@ -34,7 +34,7 @@ enum MadariFont {
     ]
 
     private static let registration: Void = {
-        guard let url = Bundle.module.url(forResource: "DMSans", withExtension: "ttf") else {
+        guard let url = AppResources.url(forResource: "DMSans", withExtension: "ttf") else {
             DebugLog.write("DMSans.ttf missing from the resource bundle")
             return
         }
