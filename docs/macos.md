@@ -140,9 +140,34 @@ What has been checked, on the released archive:
 - `Info.plist` reports `media.madari.macos`, a minimum system version of 14.0, and the version
   from `version.txt`.
 - `scripts/typecheck-macos.sh` is clean for the whole app.
+- `Contents/Resources` holds the font and the logo as loose files *and* inside
+  `Madari_Madari.bundle`, and that bundle has the `Info.plist` macOS requires.
 
-What has not been checked: the app has not been launched. Nobody has seen it run, so the
-first launch on a real Mac is the first real test of the render path.
+### The launch crash this caught
+
+The first macOS build reached the desktop and died there with SIGTRAP on the main thread,
+inside `App.init()`:
+
+```
+MadariFont.registration -> Bundle.module -> _assertionFailure
+```
+
+`Bundle.module` is a SwiftPM-generated accessor that calls `fatalError` when it cannot find
+the resource bundle it was compiled to expect, and it does so from inside its own
+initialiser, so no caller can recover. It could not find it because macOS's `Bundle(url:)`
+refuses a directory holding only resources, and SwiftPM's resource bundle ships no
+`Info.plist`. iOS's Foundation is lenient about that, which is why the same layout had been
+working there and only the Mac app died.
+
+Both halves of that are fixed: `AppResources` looks the resources up directly and returns
+nil instead of trapping, so the font falls back to the system face rather than killing the
+app, and `build-macos.sh` gives the bundle a manifest and copies the files loose, then
+asserts both. `build-macos.sh` also refuses to build if `Bundle.module` reappears in the
+sources.
+
+What has still not been checked: the app has not been seen running. The crash above was
+found by launching it, and the fix is verified only structurally — the archive on the
+release is the fixed build, and a launch after the fix is still the outstanding test.
 
 ## Current limits
 

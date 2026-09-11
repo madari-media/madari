@@ -253,6 +253,16 @@ test -f "$output/Contents/Resources/Madari_Madari.bundle/Info.plist" \
 test -f "$output/Contents/Resources/DMSans.ttf" \
   || { echo "::error::the font was not copied loose into Resources" >&2; exit 1; }
 
+# `Bundle.module` calls fatalError from inside its own initialiser when it cannot find its
+# bundle, which on macOS it cannot, so the app must not use it: AppResources resolves the
+# resources directly instead. This is a launch-time crash if it comes back, so it is a build
+# failure here instead.
+if grep -rn 'Bundle\.module' apps/ios/Sources >/dev/null 2>&1; then
+  echo "::error::Bundle.module is used again; on macOS it crashes the app at launch" >&2
+  grep -rn 'Bundle\.module' apps/ios/Sources >&2
+  exit 1
+fi
+
 # MARK: - Sign
 
 # Ad-hoc: enough for the app to launch locally, and the frameworks have to be signed before
