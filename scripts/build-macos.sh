@@ -153,35 +153,38 @@ swift_build() {
   return 1
 }
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  # SwiftPM builds one universal product on a Mac, which is one link step instead of two.
-  swift_build -c "$configuration" --arch arm64 --arch x86_64
-  built_executable="$(find "$swift_build_path/apple/Products" -type f -name 'Madari-App' | head -1)"
-  resource_bundle="$(find "$swift_build_path/apple/Products" -maxdepth 3 -name 'Madari_Madari.bundle' | head -1)"
-else
-  for arch in $archs; do
-    echo "==> Swift app for $arch"
+# One build per architecture, combined with lipo. SwiftPM's own `--arch arm64 --arch x86_64`
+# is deliberately not used: on macOS it fails on the C target with "Build input file cannot
+# be found: madari_iosFFI_Module.o", because that multi-architecture product layout does not
+# carry the per-architecture module object. The Linux path has to build per triple anyway,
+# so both hosts now take the same route.
+for arch in $archs; do
+  echo "==> Swift app for $arch"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    swift_build -c "$configuration" --triple "${arch}-apple-macosx${deployment}"
+  else
     swift_build -c "$configuration" --swift-sdk darwin --triple "${arch}-apple-macosx${deployment}"
-  done
-  # One binary per architecture, combined into the universal one the app ships.
-  executables=()
-  for arch in $archs; do
-    executables+=("$swift_build_path/${arch}-apple-macosx/$configuration/Madari-App")
-  done
-  built_executable="${executables[0]}"
-  resource_bundle="$(find "$swift_build_path" -maxdepth 4 -name 'Madari_Madari.bundle' | head -1)"
-  if [[ ${#executables[@]} -gt 1 ]]; then
-    if [[ -n "$lipo" ]]; then
-      "$lipo" -create -output "$swift_build_path/Madari-universal" "${executables[@]}"
-      built_executable="$swift_build_path/Madari-universal"
-    else
-      echo "::warning::no lipo found, so the app is ${archs%% *} only" >&2
-    fi
+  fi
+done
+
+executables=()
+for arch in $archs; do
+  executables+=("$swift_build_path/${arch}-apple-macosx/$configuration/Madari-App")
+done
+built_executable="${executables[0]}"
+resource_bundle="$(find "$swift_build_path" -maxdepth 4 -name 'Madari_Madari.bundle' | head -1)"
+if [[ ${#executables[@]} -gt 1 ]]; then
+  if [[ -n "$lipo" ]]; then
+    "$lipo" -create -output "$swift_build_path/Madari-universal" "${executables[@]}"
+    built_executable="$swift_build_path/Madari-universal"
+  else
+    echo "::warning::no lipo found, so the app is ${archs%% *} only" >&2
   fi
 fi
 
 if [[ -z "$built_executable" || ! -f "$built_executable" ]]; then
-  echo "The Swift build produced no executable." >&2
+  echo "The Swift build produced no executable at $built_executable." >&2
+  find "$swift_build_path" -name 'Madari-App' -type f 2>/dev/null | head -5 >&2 || true
   exit 1
 fi
 
