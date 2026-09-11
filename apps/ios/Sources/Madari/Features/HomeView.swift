@@ -53,7 +53,7 @@ struct HomeView: View {
             }
             .refreshable { await model.refresh() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .madariLeading) {
                     Button {
                         profileSheet = true
                     } label: {
@@ -63,7 +63,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .madariTrailing) {
                     Button {
                         Task { await model.refresh() }
                     } label: {
@@ -217,7 +217,7 @@ struct ProfileSwitcher: View {
                 }
             }
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

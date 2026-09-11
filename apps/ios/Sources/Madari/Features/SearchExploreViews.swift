@@ -17,7 +17,7 @@ struct SearchView: View {
                         HStack(spacing: 8) {
                             GlyphIcon(glyph: .search, size: 15).foregroundStyle(MadariColors.muted)
                             TextField("Search movies and series", text: $query)
-                                .textInputAutocapitalization(.never)
+                                .noAutocapitalization()
                                 .autocorrectionDisabled()
                                 .submitLabel(.search)
                                 .focused($focused)
@@ -207,7 +207,7 @@ struct CatalogView: View {
                 .padding(.bottom, 30)
             }
             .navigationTitle(catalog.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .task { if shelf == nil { await load() } }
         }
     }
@@ -259,7 +259,7 @@ private struct FilterForm: View {
                             get: { fields[field] ?? "" },
                             set: { fields[field] = $0 }
                         ),
-                        keyboard: catalog.isNumeric(field) ? .numberPad : .default
+                        keyboard: catalog.isNumeric(field) ? .numberPad : .standard
                     )
                     let options = catalog.options(for: field)
                     if !options.isEmpty {

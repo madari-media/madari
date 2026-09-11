@@ -126,11 +126,11 @@ private struct SettingsList: View {
                     .madariLabel()
             }
         }
-        .listStyle(.insetGrouped)
+        .madariGroupedList()
         .scrollContentBackground(.hidden)
         .background(MadariColors.background)
         .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .task { await model.refreshTrakt() }
     }
 
@@ -432,12 +432,12 @@ struct LanguagePickerView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .madariGroupedList()
         .scrollContentBackground(.hidden)
         .background(MadariColors.background)
         .navigationTitle(route.title)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            ToolbarItem(placement: .madariTrailing) { EditButton() }
         }
         .task {
             if !loaded {
@@ -556,7 +556,7 @@ private struct TraktSettingsView: View {
                         .textSelection(.enabled)
                     Button("Open Trakt") {
                         if let url = URL(string: device.text("verification_url")) {
-                            UIApplication.shared.open(url)
+                            openExternally(url)
                         }
                     }
                     Button("Cancel", role: .destructive) { model.traktCancel() }
@@ -605,7 +605,7 @@ private struct TraktSettingsView: View {
                     }
                 }
                 .navigationTitle("Connect Trakt")
-                .navigationBarTitleDisplayMode(.inline)
+                .inlineNavigationTitle()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { setup = false }
@@ -643,12 +643,12 @@ private struct AddonsSettingsView: View {
             recommendedSection
             installedSection
         }
-        .listStyle(.insetGrouped)
+        .madariGroupedList()
         .scrollContentBackground(.hidden)
         .background(MadariColors.background)
         .navigationTitle("Addons")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .madariTrailing) {
                 Button {
                     showInstall = true
                 } label: {
@@ -656,7 +656,7 @@ private struct AddonsSettingsView: View {
                 }
                 .accessibilityLabel("Install an addon from a URL")
             }
-            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            ToolbarItem(placement: .madariTrailing) { EditButton() }
         }
         .task { await loadRecommended() }
         .sheet(isPresented: $showInstall) {
@@ -823,7 +823,7 @@ private struct InstallAddonSheet: View {
                 }
             }
             .navigationTitle("Install addon")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -839,7 +839,7 @@ private struct InstallAddonSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .sheetDetents([.medium])
     }
 }
 
@@ -905,7 +905,7 @@ private struct ConfigureAddonSheet: View {
                 }
             }
             .navigationTitle("Configure \(addon["manifest"]?.text("name") ?? "addon")")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { onDismiss() }
@@ -979,7 +979,7 @@ private struct ShareAddonSheet: View {
                 }
             }
             .navigationTitle("Share \(addon["manifest"]?.text("name") ?? "addon")")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { onDismiss() }
@@ -1046,7 +1046,7 @@ private struct SettingsForm<Content: View>: View {
 
     var body: some View {
         Form { content }
-            .listStyle(.insetGrouped)
+            .madariGroupedList()
             .scrollContentBackground(.hidden)
             .background(MadariColors.background)
     }
@@ -1072,7 +1072,7 @@ struct ConfirmationSheet: View {
             }
         }
         .padding(24)
-        .presentationDetents([.height(210)])
+        .sheetDetents([.height(210)])
     }
 }
 

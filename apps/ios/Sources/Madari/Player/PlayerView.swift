@@ -53,7 +53,7 @@ struct PlayerView: View {
                 otherBackend: onUseMpv.map { ("Play with libmpv", $0) }
             )
         }
-        .statusBarHidden()
+        .hideStatusBar()
         .task {
             // Claims playback, so the libmpv backend stands down if it was playing.
             PlaybackCoordinator.shared.activate(engine)
@@ -594,6 +594,16 @@ private extension PlayerEngine {
 
 /// The video surface. `AVPlayerLayer` is used directly so picture size can offer the
 /// same Fit/Zoom/Stretch choices as the TV client.
+/// Fit, Zoom and Stretch, the same three choices the TV client offers.
+private func playerVideoGravity(for pictureSize: Int) -> AVLayerVideoGravity {
+    switch pictureSize {
+    case 1: .resizeAspectFill
+    case 2: .resize
+    default: .resizeAspect
+    }
+}
+
+#if os(iOS)
 private struct PlayerSurface: UIViewRepresentable {
     let player: AVPlayer
     let pictureSize: Int
@@ -607,11 +617,7 @@ private struct PlayerSurface: UIViewRepresentable {
 
     func updateUIView(_ view: PlayerLayerView, context: Context) {
         view.playerLayer.player = player
-        view.playerLayer.videoGravity = switch pictureSize {
-        case 1: .resizeAspectFill  // Zoom
-        case 2: .resize            // Stretch
-        default: .resizeAspect     // Fit
-        }
+        view.playerLayer.videoGravity = playerVideoGravity(for: pictureSize)
     }
 }
 
@@ -619,6 +625,43 @@ final class PlayerLayerView: UIView {
     override static var layerClass: AnyClass { AVPlayerLayer.self }
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 }
+#else
+private struct PlayerSurface: NSViewRepresentable {
+    let player: AVPlayer
+    let pictureSize: Int
+
+    func makeNSView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView()
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateNSView(_ view: PlayerLayerView, context: Context) {
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = playerVideoGravity(for: pictureSize)
+    }
+}
+
+/// An `NSView` with an `AVPlayerLayer` sublayer. iOS overrides `layerClass` to make the
+/// layer the view's backing store; AppKit has no such hook, so the layer is built and
+/// added by hand and resized with the view.
+final class PlayerLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer = CALayer()
+        layer?.backgroundColor = NSColor.black.cgColor
+        playerLayer.frame = bounds
+        playerLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(playerLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+}
+#endif
 
 // MARK: - Overlays
 
@@ -835,7 +878,7 @@ struct PlayerOptionsSheet<Engine: PlayerOptionsModel>: View {
                 }
             }
             .navigationTitle(page.rawValue)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     if page == .menu {

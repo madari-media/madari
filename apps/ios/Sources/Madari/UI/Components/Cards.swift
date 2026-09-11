@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Artwork, through the shared loader described in `RemoteImage.swift`.
 ///
-/// Addons sometimes publish SVG logos, which UIKit cannot decode; those keep the
+/// Addons sometimes publish SVG logos, which the platform image decoder cannot decode; those keep the
 /// panel placeholder rather than a broken frame, which is also what the TV client
 /// does when artwork fails.
 struct Artwork: View {

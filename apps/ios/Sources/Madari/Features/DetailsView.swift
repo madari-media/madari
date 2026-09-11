@@ -62,7 +62,7 @@ struct DetailsView: View {
                 .padding(.bottom, 32)
             }
             .navigationTitle(detail.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .task { await model.open(title) }
             .sheet(isPresented: $showCredits) {
                 CreditsSheet(title: detail)
@@ -208,12 +208,12 @@ struct DetailsView: View {
 
 /// The title wordmark: the addon's logo when it has one, the name otherwise.
 ///
-/// Addon logos are frequently SVG, which UIKit cannot decode, so the name stays
+/// Addon logos are frequently SVG, which the platform image decoder cannot decode, so the name stays
 /// visible until an image has actually decoded.
 struct Wordmark: View {
     let title: Title
 
-    @State private var logo: UIImage?
+    @State private var logo: PlatformImage?
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -223,7 +223,7 @@ struct Wordmark: View {
                 .lineLimit(2)
                 .opacity(logo == nil ? 1 : 0)
             if let logo {
-                Image(uiImage: logo)
+                Image(platformImage: logo)
                     .resizable()
                     .scaledToFit()
                     .frame(height: 60)
@@ -330,7 +330,7 @@ private struct CreditsSheet: View {
                 .padding(20)
             }
             .navigationTitle(title.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Close") { dismiss() }

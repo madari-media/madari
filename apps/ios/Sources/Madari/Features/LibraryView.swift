@@ -44,7 +44,7 @@ struct LibraryView: View {
             }
             .refreshable { await model.refresh() }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .madariTrailing) {
                     // The TV client has Calendar as its own destination. It reports on
                     // saved titles, so it is reached from here.
                     Button {
@@ -164,7 +164,7 @@ struct CalendarView: View {
                 .padding(.bottom, 30)
             }
             .navigationTitle("Calendar")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .task { await model.loadCalendar() }
             .refreshable { await model.loadCalendar() }
         }

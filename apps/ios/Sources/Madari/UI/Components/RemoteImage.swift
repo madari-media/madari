@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// A cached, de-duplicated, retrying image loader shared by every remote image.
 ///
@@ -14,8 +13,8 @@ import UIKit
 /// were never returned.
 @MainActor
 enum ImageCache {
-    private static let cache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    private static let cache: NSCache<NSString, PlatformImage> = {
+        let cache = NSCache<NSString, PlatformImage>()
         cache.countLimit = 400
         return cache
     }()
@@ -23,7 +22,7 @@ enum ImageCache {
     /// Requests already in flight, keyed by URL, so a URL is fetched once no matter
     /// how many views ask for it. These are deliberately unstructured: scrolling a
     /// tile away must not throw away a download the cache is about to keep.
-    private static var inFlight: [String: Task<UIImage?, Never>] = [:]
+    private static var inFlight: [String: Task<PlatformImage?, Never>] = [:]
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
@@ -42,17 +41,17 @@ enum ImageCache {
         return URLSession(configuration: configuration)
     }()
 
-    static func cached(_ url: String) -> UIImage? {
+    static func cached(_ url: String) -> PlatformImage? {
         cache.object(forKey: url as NSString)
     }
 
     /// Returns the image for `url`, or nil when it cannot be fetched or decoded.
-    static func load(_ url: String) async -> UIImage? {
+    static func load(_ url: String) async -> PlatformImage? {
         guard !url.isEmpty, let parsed = URL(string: url) else { return nil }
         if let hit = cached(url) { return hit }
         if let existing = inFlight[url] { return await existing.value }
 
-        let task = Task<UIImage?, Never> { @MainActor in
+        let task = Task<PlatformImage?, Never> { @MainActor in
             defer { inFlight[url] = nil }
             // One retry covers a dropped connection or a throttled request.
             for attempt in 0..<2 {
@@ -76,7 +75,7 @@ enum ImageCache {
     }
 
     private enum FetchOutcome {
-        case image(UIImage)
+        case image(PlatformImage)
         case retryable
         case undecodable
     }
@@ -90,7 +89,7 @@ enum ImageCache {
                 DebugLog.write("artwork status \(http.statusCode) \(url.absoluteString)")
                 return .retryable
             }
-            guard let image = UIImage(data: data) else {
+            guard let image = PlatformImage(data: data) else {
                 DebugLog.write("artwork undecodable (\(data.count) bytes) \(url.absoluteString)")
                 return .undecodable
             }
@@ -124,7 +123,7 @@ struct RemoteImage: View {
 
     private enum Phase {
         case loading
-        case loaded(UIImage)
+        case loaded(PlatformImage)
         case failed
     }
 
@@ -135,7 +134,7 @@ struct RemoteImage: View {
             .overlay {
                 switch phase {
                 case .loaded(let image):
-                    Image(uiImage: image)
+                    Image(platformImage: image)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
                 case .loading:

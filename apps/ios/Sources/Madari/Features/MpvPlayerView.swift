@@ -50,7 +50,7 @@ struct MpvPlayerView: View {
                 otherBackend: onUseAVPlayer.map { ("Use the iOS player", $0) }
             )
         }
-        .statusBarHidden()
+        .hideStatusBar()
         .task {
             // Claims playback, so the AVPlayer backend stands down if it was playing.
             PlaybackCoordinator.shared.activate(engine)

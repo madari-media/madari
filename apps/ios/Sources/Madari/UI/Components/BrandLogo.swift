@@ -1,20 +1,19 @@
 import SwiftUI
-import UIKit
 
 /// The bundled brand mark.
 ///
 /// Loaded by URL rather than by name: `Image(_:bundle:)` resolves through
-/// `UIImage(named:)`, and a loose PNG in a SwiftPM resource bundle is not guaranteed
+/// `PlatformImage(named:)`, and a loose PNG in a SwiftPM resource bundle is not guaranteed
 /// to be found that way. This is a hard requirement for the header, so it is loaded
 /// explicitly and cached.
 @MainActor
 enum BrandAsset {
-    static let logo: UIImage? = {
+    static let logo: PlatformImage? = {
         guard let url = Bundle.module.url(forResource: "MadariLogo", withExtension: "png") else {
             DebugLog.write("brand logo missing from the resource bundle")
             return nil
         }
-        guard let image = UIImage(contentsOfFile: url.path) else {
+        guard let image = PlatformImage(contentsOfFile: url.path) else {
             DebugLog.write("brand logo could not be decoded")
             return nil
         }
@@ -35,7 +34,7 @@ struct BrandLogo: View {
     var body: some View {
         Group {
             if let logo = BrandAsset.logo {
-                Image(uiImage: logo)
+                Image(platformImage: logo)
                     .resizable()
                     .scaledToFit()
                     .padding(size * 0.2)

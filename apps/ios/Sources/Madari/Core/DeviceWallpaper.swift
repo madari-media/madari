@@ -1,4 +1,8 @@
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// The profile wallpaper, chosen for the device actually in use.
 ///
@@ -13,8 +17,8 @@ import UIKit
 /// scaled it ~4× wider than the screen, and every sibling view was pushed off it.
 /// Choosing a portrait image for the device keeps the crop small and the decode cheap.
 ///
-/// `@MainActor` because it reads `UIDevice` and the foreground window scene, both of
-/// which are main-actor isolated.
+/// `@MainActor` because it reads the device idiom and the screen, both of which are
+/// main-actor isolated on iOS and macOS alike.
 @MainActor
 enum DeviceWallpaper {
     private struct Device {
@@ -53,7 +57,7 @@ enum DeviceWallpaper {
 
     /// The published name nearest the screen, matched within the device's own family.
     static var device: String {
-        let candidates = family(for: UIDevice.current.userInterfaceIdiom)
+        let candidates = family
         guard let pixels = screenPixels else { return candidates[0].name }
         // Compared as (long side, short side) so a rotation does not change the answer.
         let target = (max(pixels.width, pixels.height), min(pixels.width, pixels.height))
@@ -64,13 +68,19 @@ enum DeviceWallpaper {
             .name ?? candidates[0].name
     }
 
-    private static func family(for idiom: UIUserInterfaceIdiom) -> [Device] {
-        switch idiom {
+    /// The family to match within. A Mac has no `userInterfaceIdiom`, and the landscape
+    /// desktop art is exactly what its screen corresponds to.
+    private static var family: [Device] {
+        #if os(iOS)
+        switch UIDevice.current.userInterfaceIdiom {
         case .pad: tablets
         case .phone: phones
-        // A Mac or TV runs the same landscape art as a desktop.
+        // A TV runs the same landscape art as a desktop.
         default: desktops
         }
+        #else
+        desktops
+        #endif
     }
 
     private static func distance(_ device: Device, to target: (Int, Int)) -> Int {
@@ -80,11 +90,19 @@ enum DeviceWallpaper {
 
     /// Native pixel size, which is what the published sizes are quoted in.
     private static var screenPixels: (width: Int, height: Int)? {
+        #if os(iOS)
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let screen = scenes.first { $0.activationState == .foregroundActive }?.screen
             ?? scenes.first?.screen
         guard let screen else { return nil }
         let bounds = screen.nativeBounds
         return (Int(bounds.width), Int(bounds.height))
+        #else
+        // `NSScreen.frame` is in points, so the backing scale is what brings it to the
+        // pixels the published sizes are quoted in.
+        guard let screen = NSScreen.main else { return nil }
+        let scale = screen.backingScaleFactor
+        return (Int(screen.frame.width * scale), Int(screen.frame.height * scale))
+        #endif
     }
 }

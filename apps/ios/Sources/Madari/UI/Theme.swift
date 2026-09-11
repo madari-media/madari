@@ -1,6 +1,10 @@
 import CoreText
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// The Madari palette, shared with the Linux and TV clients.
 enum MadariColors {
@@ -16,8 +20,8 @@ enum MadariColors {
 /// PostScript `DMSans-9ptRegular`, and typographic family `DM Sans`, with the
 /// weights as named instances of that family. `Font.custom` accepts a family or a
 /// PostScript name and falls back to the system font *silently* when neither
-/// matches, so each face is resolved through `UIFont` and checked before use.
-/// `register()` must run before the first view is built.
+/// matches, so each face is resolved through the platform font API and checked
+/// before use. `register()` must run before the first view is built.
 enum MadariFont {
     private static let family = "DM Sans"
     /// The file's own face, which always exists and is the last resort.
@@ -38,7 +42,7 @@ enum MadariFont {
         let registered = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
         // Reported once at launch so a silent system-font fallback is visible in the
         // device log instead of only being noticeable by eye.
-        let resolved = UIFont(name: postScript, size: 12)
+        let resolved = PlatformFont(name: postScript, size: 12)
         DebugLog.write("font registered=\(registered) face=\(resolved?.fontName ?? "none") family=\(resolved?.familyName ?? "none")")
     }()
 
@@ -56,22 +60,24 @@ enum MadariFont {
     private static func font(_ face: String, _ size: CGFloat, _ weight: Font.Weight) -> Font {
         // A named instance is the exact cut the designer drew.
         if let instance = instanceFaces[face],
-           let descriptor = UIFontDescriptor(fontAttributes: [
+           let descriptor = PlatformFontDescriptor(fontAttributes: [
                .family: family,
                .face: instance,
-           ]) as UIFontDescriptor? {
-            let candidate = UIFont(descriptor: descriptor, size: size)
-            // `UIFont(descriptor:size:)` substitutes instead of failing, so the
+           ]) as PlatformFontDescriptor? {
+            // Optional on macOS and non-optional on iOS, so it is declared as an optional
+            // here and checked once for both.
+            let candidate: PlatformFont? = PlatformFont(descriptor: descriptor, size: size)
+            // `PlatformFont(descriptor:size:)` substitutes instead of failing, so the
             // resolved name is what distinguishes success from a fallback.
-            if candidate.fontName.hasPrefix("DMSans") {
+            if let candidate, candidate.fontName.hasPrefix("DMSans") {
                 return Font(candidate)
             }
         }
         // Otherwise interpolate the variable axis from the one face we know exists.
-        if let base = UIFont(name: postScript, size: size) {
+        if let base = PlatformFont(name: postScript, size: size) {
             return Font(base).weight(weight)
         }
-        if let byFamily = UIFont(name: family, size: size) {
+        if let byFamily = PlatformFont(name: family, size: size) {
             return Font(byFamily).weight(weight)
         }
         return .system(size: size, weight: weight)
@@ -177,7 +183,7 @@ struct MadariField: View {
     let prompt: String
     @Binding var text: String
     var secret = false
-    var keyboard: UIKeyboardType = .default
+    var keyboard: MadariKeyboard = .standard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -189,7 +195,7 @@ struct MadariField: View {
                     TextField(prompt, text: $text)
                 }
             }
-            .textInputAutocapitalization(.never)
+            .noAutocapitalization()
             .autocorrectionDisabled()
             .keyboardType(keyboard)
             .font(MadariFont.regular(16))

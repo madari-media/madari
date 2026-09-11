@@ -288,13 +288,13 @@ private struct DeleteProfilePrompt: View {
                 }
             }
             .navigationTitle("Delete profile")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
             }
-            .presentationDetents([.medium, .large])
+            .sheetDetents([.medium, .large])
         }
     }
 }
@@ -484,7 +484,7 @@ private struct PinPrompt: View {
                 }
             }
             .navigationTitle(profile.text("name"))
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -577,7 +577,7 @@ private struct ProfileEditor: View {
                 }
             }
             .navigationTitle(mode.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .sheet(isPresented: $choosingImage) {
                 AvatarPicker(avatars: avatars, selected: avatar, name: name) { chosen in
                     avatar = chosen
@@ -726,7 +726,7 @@ private struct AvatarPicker: View {
                 }
             }
             .navigationTitle("Profile image")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

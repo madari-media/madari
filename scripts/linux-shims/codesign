@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# A no-op `codesign` so a macOS cross build can be type-checked and linked on Linux.
+#
+# SwiftPM applies debug entitlements with codesign at the end of every macOS build, and
+# the Linux toolchain has no codesign at all. Nothing here produces a signed artifact --
+# the real app is assembled and signed on macOS -- so this exists only to let the
+# compile step finish while porting. Put it on PATH, never in a release.
+exit 0

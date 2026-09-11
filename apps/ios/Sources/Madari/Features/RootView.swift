@@ -23,7 +23,7 @@ struct RootView: View {
                 ResumingBanner()
             }
         }
-        .fullScreenCover(item: playbackBinding) { playback in
+        .madariFullScreenCover(item: playbackBinding) { playback in
             player(for: playback)
                 .environmentObject(model)
         }

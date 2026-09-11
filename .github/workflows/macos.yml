@@ -1,0 +1,137 @@
+name: macOS app
+
+# Builds the native macOS app: a universal Madari.app with the vendored libmpv frameworks
+# embedded, zipped for distribution.
+#
+# Runs on macOS rather than the Linux cross build because that is the only deterministic
+# path for the Swift half: from Linux, SwiftPM registers xtool's Darwin bundle twice (once
+# from its legacy `info.json`, once from `swift-sdk.json`) and picks between them at
+# random, applying an iOS or simulator sysroot about half the time. scripts/typecheck-macos.sh
+# still checks the sources from Linux; this job is what produces the app.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to attach the app to.
+        type: string
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to attach the app to, e.g. v0.4.0. Leave empty to only upload a workflow artifact.
+        type: string
+        required: false
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+# Writing is needed for the attach step below, which only runs on a dispatch that passes a
+# tag. The release flow calls this without one and attaches the artifact itself, but a
+# called workflow cannot be granted more than its caller, so it is declared here.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # The settings UI is embedded with include_str!, and this job builds it explicitly below.
+  MADARI_SKIP_WEB_BUILD: "1"
+
+jobs:
+  app:
+    name: Universal Madari.app
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-app
+
+      # The settings UI is embedded into madari-tv with include_str!, and build.rs only
+      # writes a placeholder when web/dist is absent. A placeholder is fine for a test build
+      # and wrong in something a user downloads, so the real bundle is built here.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/madari-tv/web/package.json
+
+      # After action-setup, so its `cache: pnpm` can find the pnpm store.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: crates/madari-tv/web/pnpm-lock.yaml
+
+      - name: Build the embedded web bundle
+        working-directory: crates/madari-tv/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          if grep -q "were not built" dist/app.js; then
+            echo "::error::the web bundle is the build.rs placeholder, not a real build"
+            exit 1
+          fi
+
+      - name: Cache libmpv macOS XCFrameworks
+        id: mpv-cache
+        uses: actions/cache@v4
+        with:
+          path: apps/ios/native/mpv-macos
+          key: macos-mpv-${{ hashFiles('scripts/fetch-ios-mpv.sh') }}
+
+      - name: Fetch libmpv
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        env:
+          MADARI_MPV_PLATFORMS: macos
+        run: bash scripts/fetch-ios-mpv.sh
+
+      # Builds the Rust core for both darwin architectures, combines them with lipo, then
+      # builds the Swift app and assembles the bundle around it. The UniFFI bindings are
+      # shared with iOS and committed, so they are not regenerated here.
+      - name: Build the app
+        run: bash scripts/build-macos.sh
+
+      - name: Report what was produced
+        run: |
+          APP=apps/macos/build/Madari.app
+          test -d "$APP" || { echo "::error::no Madari.app was produced"; exit 1; }
+          echo "--- bundle"
+          find "$APP" -maxdepth 2 -not -path '*/Frameworks/*' | sort
+          echo "--- frameworks: $(find "$APP/Contents/Frameworks" -maxdepth 1 -name '*.framework' | wc -l)"
+          echo "--- architectures"
+          lipo -archs "$APP/Contents/MacOS/Madari"
+          echo "--- linked libraries resolve?"
+          otool -L "$APP/Contents/MacOS/Madari" | grep -c '@rpath' || true
+
+      # Zipped rather than a dmg: a dmg needs a mounted volume to build, which is not worth
+      # the moving parts until the app is signed with a real identity.
+      - name: Package
+        run: |
+          version="$(cat version.txt 2>/dev/null || echo 0.0.0)"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          cd apps/macos/build
+          # ditto preserves the extended attributes and symlinks inside a framework, which
+          # `zip -r` does not.
+          ditto -c -k --sequesterRsrc --keepParent Madari.app "Madari-${version}-macos-universal.zip"
+          ls -la ./*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: madari-macos-app
+          path: apps/macos/build/Madari-*-macos-universal.zip
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            "apps/macos/build/Madari-${VERSION}-macos-universal.zip" \
+            --clobber --repo "$GITHUB_REPOSITORY"

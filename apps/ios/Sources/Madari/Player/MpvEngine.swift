@@ -122,7 +122,15 @@ final class MpvEngine: ObservableObject, @unchecked Sendable {
         // thread, independent of the decoder. `auto-safe` prefers VideoToolbox through the
         // zero-copy GLES interop and falls back if a stream cannot use it.
         set("hwdec", "auto-safe")
+        #if os(iOS)
+        // AudioUnit is the only audio output in the vendored iOS build: coreaudio,
+        // opensles, openal, pulse and pipewire are all compiled out.
         set("ao", "audiounit")
+        #else
+        // CoreAudio is the macOS output. Neither platform can use the other's setting,
+        // because each build compiles the other one out.
+        set("ao", "coreaudio")
+        #endif
         set("config", "no")
         set("terminal", "no")
         set("input-default-bindings", "no")

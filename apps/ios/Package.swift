@@ -10,6 +10,9 @@ let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent
 /// The deployment target. Also passed to the linker below, so the two cannot drift.
 let minimumIOSVersion = "17.0"
 
+/// The Mac app. 14 is the oldest release with the SwiftUI APIs these screens already use.
+let minimumMacOSVersion = "14.0"
+
 /// Tells the linker which SDK this app was built against.
 ///
 /// iOS decides between the current design (Liquid Glass) and the pre-26
@@ -19,7 +22,18 @@ let minimumIOSVersion = "17.0"
 /// deployment target as the SDK version, which silently opts the app out of the
 /// current design. Reading the version from the SDK keeps it honest when the
 /// installed SDK changes.
-func iosPlatformVersionFlags() -> [LinkerSetting] {
+///
+/// Which platform is being built is set by the build scripts rather than inferred from
+/// the host, because the host is not the answer: CI builds the iOS app on a macOS runner,
+/// and the Mac app is built from Linux. Getting this wrong passes `-platform_version ios`
+/// to a macOS build, which is what "using sysroot for 'iPhoneOS' but targeting 'MacOSX'"
+/// means. iOS is the default, so a plain build with no scripts around it behaves as before.
+func platformVersionFlags() -> [LinkerSetting] {
+    let targetPlatform = ProcessInfo.processInfo.environment["MADARI_TARGET_PLATFORM"] ?? "ios"
+    guard targetPlatform == "ios" else {
+        // The Mac app records its own platform version through the toolchain.
+        return []
+    }
     #if os(macOS)
     // Xcode and the macOS toolchain supply this, and a duplicate is an error.
     return []
@@ -75,18 +89,29 @@ let mpvLibraries = [
 ]
 
 /// Absent until scripts/fetch-ios-mpv.sh has run, exactly like native/libmadari_ios.a.
-let mpvTargets: [Target] = mpvLibraries.map {
-    .binaryTarget(name: $0, path: "native/mpv/\($0).xcframework")
+///
+/// Both platforms' frameworks are declared, and which set is linked is decided by the
+/// condition on the app target's dependency below. That has to be a per-*target* choice
+/// rather than a check on the host: CI builds the iOS app on a macOS runner, so a host
+/// check would link macOS frameworks into an iOS app. The prefixes keep the two sets from
+/// colliding on a target name; the module inside each one is still `Mpv`, `Avcodec` and so
+/// on, so no Swift code has to care which set it got.
+let mpvIOSLibraries: [Target] = mpvLibraries.map {
+    .binaryTarget(name: "IOS\($0)", path: "native/mpv/\($0).xcframework")
+}
+
+let mpvMacOSLibraries: [Target] = mpvLibraries.map {
+    .binaryTarget(name: "MAC\($0)", path: "native/mpv-macos/\($0).xcframework")
 }
 
 let package = Package(
     name: "Madari",
-    platforms: [.iOS(minimumIOSVersion)],
+    platforms: [.iOS(minimumIOSVersion), .macOS(minimumMacOSVersion)],
     products: [
         // An xtool project contains exactly one library product: the app itself.
         .library(name: "Madari", targets: ["Madari"])
     ],
-    targets: mpvTargets + [
+    targets: mpvIOSLibraries + mpvMacOSLibraries + [
         // Raw symbols from libmadari_ios.a, as emitted by `uniffi-bindgen`.
         .target(
             name: "madari_iosFFI",
@@ -99,7 +124,10 @@ let package = Package(
             dependencies: ["madari_iosFFI"],
             path: "Sources/MadariCore",
             linkerSettings: [
-                .unsafeFlags(["-L\(packageDirectory)/native"]),
+                // The Rust core is a static library built per platform; the iOS one is the
+                // cross build, the macOS one is a universal binary from the same script.
+                .unsafeFlags(["-L\(packageDirectory)/native"], .when(platforms: [.iOS])),
+                .unsafeFlags(["-L\(packageDirectory)/native/macos"], .when(platforms: [.macOS])),
                 .linkedLibrary("madari_ios"),
                 // Linked by crates the core pulls in, not by Swift:
                 // rustls-platform-verifier verifies through Security.framework,
@@ -114,17 +142,23 @@ let package = Package(
         ),
         .target(
             name: "Madari",
-            dependencies: ["MadariCore"] + mpvLibraries.map { .target(name: $0) },
+            dependencies: ["MadariCore"]
+                + mpvLibraries.map { .target(name: "IOS\($0)", condition: .when(platforms: [.iOS])) }
+                + mpvLibraries.map { .target(name: "MAC\($0)", condition: .when(platforms: [.macOS])) },
             path: "Sources/Madari",
             resources: [.process("Resources")],
             swiftSettings: [
-                // libmpv's render API is OpenGL ES, which Apple deprecated in iOS 12.
-                // It is still the API this build of mpv targets, and the alternative
-                // would be a Metal/libplacebo build that upstream does not support, so
-                // the deprecation is expected rather than a problem to fix.
-                .unsafeFlags(["-Xcc", "-DGLES_SILENCE_DEPRECATION"])
+                // libmpv's render API is OpenGL: ES on iOS, desktop GL on macOS. Apple has
+                // deprecated both, and both are still the API this build of mpv targets;
+                // the alternative would be a Metal/libplacebo build that upstream does not
+                // support. Each define is inert on the platform it does not name, so both
+                // are set rather than trying to guess the target from the host.
+                .unsafeFlags([
+                    "-Xcc", "-DGLES_SILENCE_DEPRECATION",
+                    "-Xcc", "-DGL_SILENCE_DEPRECATION",
+                ])
             ],
-            linkerSettings: iosPlatformVersionFlags()
+            linkerSettings: platformVersionFlags()
         )
     ]
 )

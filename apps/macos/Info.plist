@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>Madari</string>
+	<key>CFBundleIdentifier</key>
+	<string>media.madari.macos</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Madari</string>
+	<key>CFBundleDisplayName</key>
+	<string>Madari</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<!-- Rewritten from version.txt by scripts/build-macos.sh, so a release cannot ship a
+	     bundle whose version disagrees with the tag. -->
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<!-- Without this the window is rendered at 1x and everything looks soft on Retina. -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- SwiftUI's App lifecycle builds its own application object. -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.entertainment</string>
+	<!-- Settings can run the LAN settings server, and the app connects to addons and
+	     media sources on the local network. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Madari serves its settings page to a browser on this network, and connects to your addons and media sources on your local network.</string>
+	<!-- User-installed addons and sources may only be reachable over plain HTTP. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

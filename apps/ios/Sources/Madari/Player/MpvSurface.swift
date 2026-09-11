@@ -1,3 +1,5 @@
+#if os(iOS)
+
 import Darwin
 import Foundation
 import Mpv
@@ -293,3 +295,5 @@ final class MpvSurfaceView: UIView {
         _ = glContext.presentRenderbuffer(Int(GL_RENDERBUFFER))
     }
 }
+
+#endif

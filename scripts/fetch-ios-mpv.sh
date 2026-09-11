@@ -3,7 +3,11 @@
 # libmadari_ios.a):
 #
 #   ios    -> apps/ios/native/mpv
-#   macos  -> apps/macos/native/mpv
+#   macos  -> apps/ios/native/mpv-macos
+#
+# Both live under the SwiftPM package root, because a binary target's path has to be
+# inside it. The macOS app itself is built from apps/macos, which depends on that
+# package.
 #
 # Despite the name this now covers both platforms. The name is kept because CI and
 # docs/ios.md refer to it by that path.
@@ -109,7 +113,7 @@ for platform in $platforms; do
     fetch iOS "$ios_variant" "$ios_sha256" "apps/ios/native/mpv"
     ;;
   macos)
-    fetch macOS "$macos_variant" "$macos_sha256" "apps/macos/native/mpv"
+    fetch macOS "$macos_variant" "$macos_sha256" "apps/ios/native/mpv-macos"
     ;;
   *)
     echo "Unknown platform '$platform' (expected ios or macos)" >&2

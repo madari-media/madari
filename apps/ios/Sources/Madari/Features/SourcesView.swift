@@ -101,7 +101,7 @@ struct SourcesView: View {
                 .padding(.bottom, 30)
             }
             .navigationTitle("Sources")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .task { await model.loadSources(title, videoId: videoId) }
         }
     }
