@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/madari-media/madari/compare/v0.4.0...v0.5.0) (2026-09-11)
+
+
+### Features
+
+* **macos:** build a native macOS app ([90bf448](https://github.com/madari-media/madari/commit/90bf44814ec860046a5ff402385eb08856d78a52))
+* **macos:** vendor the macOS libmpv XCFrameworks alongside the iOS ones ([a21e4bd](https://github.com/madari-media/madari/commit/a21e4bd0061e854bd2b5959e1710e29433a80217))
+
+
+### Bug Fixes
+
+* **macos:** build one architecture at a time and combine with lipo ([36ac978](https://github.com/madari-media/madari/commit/36ac97852c82b5f7e7bcdf7a7c138aa38007bb51))
+* **macos:** declare only the target platform's frameworks ([4a0355f](https://github.com/madari-media/madari/commit/4a0355f0bdc287ad8051559de8707d11af0d218b))
+
 ## [0.4.0](https://github.com/madari-media/madari/compare/v0.3.0...v0.4.0) (2026-09-11)
 
 
