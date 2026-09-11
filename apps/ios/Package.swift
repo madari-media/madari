@@ -13,6 +13,12 @@ let minimumIOSVersion = "17.0"
 /// The Mac app. 14 is the oldest release with the SwiftUI APIs these screens already use.
 let minimumMacOSVersion = "14.0"
 
+/// Which app is being built. Set by the build scripts, because a manifest cannot ask
+/// SwiftPM for the target platform: CI builds the iOS app on a macOS runner, and the Mac app
+/// is built from Linux, so the host says nothing useful. iOS is the default, so a plain
+/// `swift build` or `xtool dev build` behaves exactly as it did before.
+let targetPlatform = ProcessInfo.processInfo.environment["MADARI_TARGET_PLATFORM"] ?? "ios"
+
 /// Tells the linker which SDK this app was built against.
 ///
 /// iOS decides between the current design (Liquid Glass) and the pre-26
@@ -23,13 +29,9 @@ let minimumMacOSVersion = "14.0"
 /// current design. Reading the version from the SDK keeps it honest when the
 /// installed SDK changes.
 ///
-/// Which platform is being built is set by the build scripts rather than inferred from
-/// the host, because the host is not the answer: CI builds the iOS app on a macOS runner,
-/// and the Mac app is built from Linux. Getting this wrong passes `-platform_version ios`
-/// to a macOS build, which is what "using sysroot for 'iPhoneOS' but targeting 'MacOSX'"
-/// means. iOS is the default, so a plain build with no scripts around it behaves as before.
+/// Getting the platform wrong here is what "using sysroot for 'iPhoneOS' but targeting
+/// 'MacOSX'" means: iOS flags passed to a macOS build.
 func platformVersionFlags() -> [LinkerSetting] {
-    let targetPlatform = ProcessInfo.processInfo.environment["MADARI_TARGET_PLATFORM"] ?? "ios"
     guard targetPlatform == "ios" else {
         // The Mac app records its own platform version through the toolchain.
         return []
@@ -90,18 +92,14 @@ let mpvLibraries = [
 
 /// Absent until scripts/fetch-ios-mpv.sh has run, exactly like native/libmadari_ios.a.
 ///
-/// Both platforms' frameworks are declared, and which set is linked is decided by the
-/// condition on the app target's dependency below. That has to be a per-*target* choice
-/// rather than a check on the host: CI builds the iOS app on a macOS runner, so a host
-/// check would link macOS frameworks into an iOS app. The prefixes keep the two sets from
-/// colliding on a target name; the module inside each one is still `Mpv`, `Avcodec` and so
-/// on, so no Swift code has to care which set it got.
-let mpvIOSLibraries: [Target] = mpvLibraries.map {
-    .binaryTarget(name: "IOS\($0)", path: "native/mpv/\($0).xcframework")
-}
-
-let mpvMacOSLibraries: [Target] = mpvLibraries.map {
-    .binaryTarget(name: "MAC\($0)", path: "native/mpv-macos/\($0).xcframework")
+/// Only one platform's set is declared, not both. SwiftPM validates every binary target in
+/// the package whether or not anything depends on it, so declaring the other platform's
+/// frameworks fails the build with "does not contain a binary artifact" whenever they have
+/// not been downloaded. Which set that is comes from the same variable as the platform
+/// flags above.
+let mpvTargets: [Target] = mpvLibraries.map {
+    let directory = targetPlatform == "macos" ? "native/mpv-macos" : "native/mpv"
+    return .binaryTarget(name: $0, path: "\(directory)/\($0).xcframework")
 }
 
 let package = Package(
@@ -111,7 +109,7 @@ let package = Package(
         // An xtool project contains exactly one library product: the app itself.
         .library(name: "Madari", targets: ["Madari"])
     ],
-    targets: mpvIOSLibraries + mpvMacOSLibraries + [
+    targets: mpvTargets + [
         // Raw symbols from libmadari_ios.a, as emitted by `uniffi-bindgen`.
         .target(
             name: "madari_iosFFI",
@@ -142,9 +140,7 @@ let package = Package(
         ),
         .target(
             name: "Madari",
-            dependencies: ["MadariCore"]
-                + mpvLibraries.map { .target(name: "IOS\($0)", condition: .when(platforms: [.iOS])) }
-                + mpvLibraries.map { .target(name: "MAC\($0)", condition: .when(platforms: [.macOS])) },
+            dependencies: ["MadariCore"] + mpvLibraries.map { .target(name: $0) },
             path: "Sources/Madari",
             resources: [.process("Resources")],
             swiftSettings: [
