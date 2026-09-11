@@ -14,7 +14,9 @@ Compose for TV and the shared Rust libraries through JNI. See
 [TV build and setup](docs/android-tv.md). A native SwiftUI **iOS** client lives in
 `apps/ios`, using the same shared libraries through a UniFFI boundary and built
 from Linux with xtool, with no Xcode. See [iOS build and setup](docs/ios.md).
-Other platform clients remain deferred.
+A native SwiftUI **macOS** client shares those iOS sources and ships as a
+universal Apple Silicon and Intel app. See
+[macOS build and setup](docs/macos.md). Other platform clients remain deferred.
 
 ## Linux app
 
@@ -406,8 +408,9 @@ IDs are not yet implemented; response `X-Request-Id` is diagnostic only.
 The portable crates compile for WASM and native targets without the media engine.
 The GTK4/libadwaita client and its player integration target Linux, with an
 experimental Windows x64 build for VM testing. The ARM64 Android TV client uses
-JNI bindings to these same native libraries. Other clients and browser
-HTTP/storage implementations are deferred.
+JNI bindings to these same native libraries, and the iOS and macOS clients reach
+them through a UniFFI boundary. Other clients and browser HTTP/storage
+implementations are deferred.
 
 ## Validate
 
