@@ -256,10 +256,11 @@ test -f "$output/Contents/Resources/DMSans.ttf" \
 # `Bundle.module` calls fatalError from inside its own initialiser when it cannot find its
 # bundle, which on macOS it cannot, so the app must not use it: AppResources resolves the
 # resources directly instead. This is a launch-time crash if it comes back, so it is a build
-# failure here instead.
-if grep -rn 'Bundle\.module' apps/ios/Sources >/dev/null 2>&1; then
+# failure here instead. Comments that name it in backticks are not a use, which is why they
+# are excluded rather than the search being narrowed.
+if grep -rn 'Bundle\.module' apps/ios/Sources | grep -v '`' | grep . >/dev/null 2>&1; then
   echo "::error::Bundle.module is used again; on macOS it crashes the app at launch" >&2
-  grep -rn 'Bundle\.module' apps/ios/Sources >&2
+  grep -rn 'Bundle\.module' apps/ios/Sources | grep -v '`' >&2
   exit 1
 fi
 
