@@ -82,8 +82,10 @@ jobs:
     name: iOS ipa for the tag
     needs: propose
     if: always() && (needs.propose.outputs.released == 'true' || inputs.tag != '')
+    # Must grant what the called workflow declares, or GitHub rejects the call at
+    # validation time and the whole run fails to start.
     permissions:
-      contents: read
+      contents: write
     # No tag is passed: the attach job below owns uploading, so every artifact is
     # renamed and validated in one place.
     uses: ./.github/workflows/ios-ipa.yml
