@@ -55,12 +55,17 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       # Installed before checkout: a container job has no git of its own.
+      # rpm ships /usr/lib/rpm/find-requires, used by `cargo generate-rpm
+      # --auto-req find-requires` below; without it the tool silently falls back
+      # to deriving Requires from `ldd`'s whole transitive closure, which bakes
+      # Debian-specific sonames (libcurl-gnutls, libsrt-gnutls, liblua5.2, ...)
+      # into the rpm and makes it uninstallable on Fedora/openSUSE.
       - name: System dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             git ca-certificates curl build-essential pkg-config file \
-            libgtk-4-dev libadwaita-1-dev libmpv-dev
+            libgtk-4-dev libadwaita-1-dev libmpv-dev rpm
 
       - uses: actions/checkout@v4
         with:
@@ -103,10 +108,13 @@ jobs:
           mkdir -p dist
           find target/debian -name '*.deb' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.deb" \;
 
+      # `find-requires` is named explicitly rather than relying on the "auto"
+      # default: auto falls back to the broken builtin `ldd` mode when the
+      # script is absent, while find-requires fails loudly instead.
       - name: RPM package
         run: |
           version='${{ steps.version.outputs.version }}'
-          cargo generate-rpm -p apps/linux -s "version = \"${version}\""
+          cargo generate-rpm -p apps/linux -s "version = \"${version}\"" --auto-req find-requires
           mkdir -p dist
           find target/generate-rpm -name '*.rpm' -exec cp {} "dist/madari-${version}-${{ matrix.arch }}.rpm" \;
 

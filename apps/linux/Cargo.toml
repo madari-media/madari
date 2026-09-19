@@ -82,6 +82,11 @@ summary = "Stream your addon library"
 url = "https://github.com/madari-media/madari"
 # Derived from the ELF rather than listed, because the library package names
 # differ between Fedora (gtk4, mpv-libs) and openSUSE (libgtk-4-1, libmpv2).
+# Soname-level Requires resolve through Provides on either family. The CI
+# workflow passes `--auto-req find-requires` so the list comes from rpm's real
+# dependency generator; with no find-requires installed, the builtin fallback
+# records `ldd`'s full transitive closure — sonames that only exist in the
+# build container — and the rpm refuses to install anywhere else.
 auto-req = "auto"
 assets = [
     { source = "target/release/madari", dest = "/usr/bin/madari", mode = "755" },
