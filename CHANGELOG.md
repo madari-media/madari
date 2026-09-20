@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/madari-media/madari/compare/v0.5.0...v0.5.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **linux:** generate rpm Requires from direct deps only ([6722ea0](https://github.com/madari-media/madari/commit/6722ea0bdc82553c5512035e1a8cc3906a633b84))
+* **macos:** exclude comments from the Bundle.module guard ([c8f3365](https://github.com/madari-media/madari/commit/c8f3365fafd1c913d57024f5c3f8b76d118a294b))
+* **macos:** find the app's resources without Bundle.module ([36fef46](https://github.com/madari-media/madari/commit/36fef460cac9c9bbbe9f2e97b0cb2d523f280424))
+
 ## [0.5.0](https://github.com/madari-media/madari/compare/v0.4.0...v0.5.0) (2026-09-11)
 
 
