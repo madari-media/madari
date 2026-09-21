@@ -13,7 +13,7 @@ android {
         // Release Please rewrites the versionName line in its release PR. The
         // versionCode is derived from it so the two cannot disagree, and it
         // stays monotonic as Android requires (0.2.1 -> 201).
-        versionName = "0.5.0" // x-release-please-version
+        versionName = "0.5.1" // x-release-please-version
         versionCode =
             requireNotNull(versionName)
                 .substringBefore('-')
